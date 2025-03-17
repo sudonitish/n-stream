@@ -22,8 +22,8 @@ app.use('/', router);
 io.on('connection', (socket) => {
     console.log('A user connected');
 
-    socket.on('player', (control, roomId) => {
-        socket.broadcast.to(roomId).emit('changing control', { control, email });
+    socket.on('change_media', ({ roomId, videoId }) => {
+        io.to(roomId).emit('change_media', {roomId, videoId });
     });
 
     socket.on('room', (roomId) => {
