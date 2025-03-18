@@ -19,16 +19,46 @@ app.use(session({
 }))
 app.use('/', router);
 
+const roomStates = {};
+
 io.on('connection', (socket) => {
     console.log('A user connected');
 
-    socket.on('change_media', ({ roomId, videoId }) => {
-        io.to(roomId).emit('change_media', {roomId, videoId });
+    socket.on('room', (event, roomId) => {
+        if (event === 'join') {
+            socket.join(roomId);
+
+            // Send the current state of the room to the newly joined user
+            if (roomStates[roomId]) {
+                const currentState = roomStates[roomId];
+                
+                currentState.timestamp = Date.now(); // Add a timestamp
+                socket.emit('sync_state', currentState);
+            }
+        }
+        if (event === 'leave') {
+            socket.leave(roomId);
+        }
     });
 
-    socket.on('room', (roomId) => {
-        socket.join(roomId);
-    })
+    socket.on('change_media', ({ roomId, videoId }) => {
+        if (!roomStates[roomId]) roomStates[roomId] = {};
+        roomStates[roomId].videoId = videoId;
+        roomStates[roomId].time = 0; // Reset time
+        roomStates[roomId].action = 'pause'; // Default to paused
+        roomStates[roomId].timestamp = Date.now(); // Update timestamp
+
+        io.to(roomId).emit('change_media', { roomId, videoId });
+    });
+
+    socket.on('sync_action', ({ action, time, roomId }) => {
+        if (!roomStates[roomId]) roomStates[roomId] = {};
+        roomStates[roomId].action = action;
+        roomStates[roomId].time = time;
+        roomStates[roomId].timestamp = Date.now(); // Update timestamp
+
+        io.to(roomId).emit('sync_action', { action, time });
+    });
 
     socket.on('disconnect', () => {
         console.log('A user disconnected');

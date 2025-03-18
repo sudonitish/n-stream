@@ -9,11 +9,19 @@
 </head>
 
 <body>
-    <h1>Stream</h1>
-    <div id="player"></div>
-    <div>
-        <input type="text" id="urlInput" placeholder="Enter a YouTube URL">
-        <button id="playButton">Play</button>
+    <h1>Chilling</h1>
+    <div id="createRoomDiv">
+        <input type="text" id="roomInput" placeholder="Enter a room name">
+        <button id="joinButton">Join room</button>
+        
+    </div>
+    <div id="roomDiv" style="display: none;">
+        <div id="player"></div>
+        <div>
+            <input type="text" id="urlInput" placeholder="Enter a YouTube URL">
+            <button id="playButton">Add</button>
+            <button id="leaveButton">Leave room</button>
+        </div>
     </div>
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="/socket.io/socket.io.js"></script>
