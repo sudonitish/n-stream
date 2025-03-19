@@ -1,108 +1,92 @@
 let player;
+const socket = io();
+let roomId = null;
+
 const urlInput = document.getElementById('urlInput');
-const playButton = document.getElementById('playButton');
 const roomInput = document.getElementById('roomInput');
+const uploadMediaButton = document.getElementById('uploadMediaButton');
 const joinButton = document.getElementById('joinButton');
+const leaveButton = document.getElementById('leaveButton');
+const nextButton = document.getElementById('nextButton');
+const prevButton = document.getElementById('prevButton');
 const createRoomDiv = document.getElementById('createRoomDiv');
 const roomDiv = document.getElementById('roomDiv');
-const socket = io(); // Connect to the server
-let roomId = null;
-const playlist = [
-    "https://youtu.be/y12BRDS1CHI",
-    "https://youtu.be/2Vv-BfVoq4g",
-    "https://youtu.be/2Vv-BfVoq4g",
-    "https://youtu.be/2Vv-BfVoq4g",
-]
-let playing = null;
+const playlistDiv = document.getElementById('playlistDiv');
 
-playButton.onclick = () => {
-    const videoUrl = urlInput.value;
-    const videoId = getYouTubeVideoId(videoUrl);
-    if (videoId) {
-        playlist.push(videoId);
-    } else {
-        console.error('Invalid YouTube URL');
+const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})(\S*)?$/;
+
+// 🎯 Event Listeners
+uploadMediaButton.onclick = () => {
+    const videoUrl = urlInput.value.trim();
+    if (!isValidYouTubeURL(videoUrl)) {
+        return alert('Invalid YouTube URL');
     }
-}
+    if (roomId) {
+        socket.emit('upload_media', { videoUrl, roomId });
+    }
+};
 
 joinButton.onclick = () => {
-    const room = roomInput.value;
-    roomId = room;
-    socket.emit('room', 'join', roomId);
-    createRoomDiv.style.display = 'block';
-    roomDiv.style.display = 'none';
-}
-leaveButton.onclick = () => {
-    socket.emit('room', 'leave', roomId);
-    roomId = null;
+    roomId = roomInput.value.trim();
+    if (!roomId) return alert("Room ID cannot be empty!");
+
+    socket.emit('join_room', { roomId });
     createRoomDiv.style.display = 'none';
     roomDiv.style.display = 'block';
-}
+};
 
-socket.on('connect', () => {
-    console.log('Connected to server');
+leaveButton.onclick = () => {
+    if (roomId) {
+        socket.emit('leave_room', { roomId });
+        roomId = null;
+    }
+    createRoomDiv.style.display = 'block';
+    roomDiv.style.display = 'none';
+};
+
+nextButton.onclick = () => roomId && socket.emit('change_media', { action: 'next', roomId });
+prevButton.onclick = () => roomId && socket.emit('change_media', { action: 'prev', roomId });
+
+socket.on('change_media', ({ videoId }) => {
+    if (player) {
+        player.loadVideoById({ videoId, startSeconds: 0, suggestedQuality: 'hd720' });
+    }
 });
 
-socket.on('change_media', ({ roomId, videoId }) => {
-    player.loadVideoById({
-        videoId: videoId,
-        startSeconds: 0,
-        suggestedQuality: 'hd720'
+socket.on('sync_action', ({ action, time, timeStamp, videoId }) => {
+    if (!player) return;
+    const currentVideoID = player.getVideoData().video_id || null;
+    if (currentVideoID != videoId) {
+        player.loadVideoById({ videoId, startSeconds: time || 0, suggestedQuality: 'hd720' });
+        return;
+    }
+
+    if (action === 'play' && player.getPlayerState() !== YT.PlayerState.PLAYING) {
+        player.seekTo(time, true);
+        player.playVideo();
+    } else if (action === 'pause' && player.getPlayerState() !== YT.PlayerState.PAUSED) {
+        player.pauseVideo();
+    } else if (action === 'seek' && Math.abs(player.getCurrentTime() - time) > 1) {
+        player.seekTo(time, true);
+    }
+});
+
+socket.on('sync_playlist', ({ playlist, playlistIndex }) => {
+    playlistDiv.innerHTML = '';
+    playlist?.forEach((videoUrl, index) => {
+        const div = document.createElement('div');
+        div.innerHTML = `<a href="javascript:void(0)" onclick="playVideo(${index})">${videoUrl}</a>`;
+        playlistDiv.appendChild(div);
     });
 });
 
-socket.on('sync_action', ({ action, time }) => {
-    if (action === 'play') {
-        player.seekTo(time, true);
-        player.playVideo();
-    } else if (action === 'pause') {
-        player.pauseVideo();
-    } else if (action === 'seek') {
-        player.seekTo(time, true);
-    }
-});
-
-socket.on('sync_state', ({ videoId, time, action, timestamp }) => {
-    const now = Date.now();
-    const stateAge = now - timestamp;
-
-    // Only sync if the state is recent (e.g., within the last 10 seconds)
-    if (stateAge <= 10000 && videoId) {
-        player.loadVideoById({
-            videoId: videoId,
-            startSeconds: time || 0,
-            suggestedQuality: 'hd720'
-        });
-
-        if (action === 'play') {
-            player.playVideo();
-        } else if (action === 'pause') {
-            player.pauseVideo();
-        }
-    } else {
-        console.warn('State is outdated, not syncing.');
-    }
-});
-
-socket.on('disconnect', () => {
-    console.log('Disconnected from server');
-});
-
-function getYouTubeVideoId(url) {
-    const urlObj = new URL(url);
-    if (urlObj.hostname === 'youtu.be') {
-        return urlObj.pathname.slice(1);
-    } else if (urlObj.hostname === 'www.youtube.com' || urlObj.hostname === 'youtube.com') {
-        return urlObj.searchParams.get('v');
-    }
-    return null;
-}
+socket.on('disconnect', () => console.log('Disconnected from server'));
 
 function onYouTubeIframeAPIReady() {
     player = new YT.Player('player', {
         height: '315',
         width: '560',
-        videoId: playing,
+        videoId: null,
         playerVars: { 'playsinline': 1 },
         events: {
             'onReady': onPlayerReady,
@@ -111,19 +95,27 @@ function onYouTubeIframeAPIReady() {
     });
 }
 
-function onPlayerReady(event) {
+function isValidYouTubeURL(url) {
+    return youtubeRegex.test(url);
+}
+
+function onPlayerReady() {
+    console.log('YouTube Player Ready');
 }
 
 function onPlayerStateChange(event) {
-    const playerState = event.data;
-    const currentTime = player.getCurrentTime();
+    if (!roomId) return;
 
-    if (playerState === YT.PlayerState.PLAYING) {
-        socket.emit('sync_action', { action: 'play', time: currentTime, roomId });
-    } else if (playerState === YT.PlayerState.PAUSED) {
-        socket.emit('sync_action', { action: 'pause', time: currentTime, roomId });
-    } else if (playerState === YT.PlayerState.BUFFERING) {
-        socket.emit('sync_action', { action: 'seek', time: currentTime, roomId });
+    const currentTime = player.getCurrentTime();
+    const playerState = event.data;
+
+    let action;
+    if (playerState === YT.PlayerState.PLAYING) action = 'play';
+    else if (playerState === YT.PlayerState.PAUSED) action = 'pause';
+    else if (playerState === YT.PlayerState.BUFFERING) action = 'seek';
+    console.log(action);
+    if (action) {
+        // Emit only if the action is initiated by the user
+        socket.emit('sync_action', { action, time: currentTime, roomId });
     }
 }
-
