@@ -1,4 +1,5 @@
 let player;
+let isProgrammatic = false;
 const socket = io();
 let roomId = null;
 
@@ -53,23 +54,43 @@ socket.on('change_media', ({ videoId }) => {
     }
 });
 
-socket.on('sync_action', ({ action, time, timeStamp, videoId }) => {
+socket.on('sync_action', ({ action, time, videoId,strict}) => {
     if (!player) return;
     const currentVideoID = player.getVideoData().video_id || null;
-    if (currentVideoID != videoId) {
-        player.loadVideoById({ videoId, startSeconds: time || 0, suggestedQuality: 'hd720' });
-        return;
-    }
 
-    if (action === 'play' && player.getPlayerState() !== YT.PlayerState.PLAYING) {
-        player.seekTo(time, true);
-        player.playVideo();
-    } else if (action === 'pause' && player.getPlayerState() !== YT.PlayerState.PAUSED) {
-        player.pauseVideo();
-    } else if (action === 'seek' && Math.abs(player.getCurrentTime() - time) > 1) {
-        player.seekTo(time, true);
+    isProgrammatic = true;
+
+    if (currentVideoID !== videoId) {
+        player.loadVideoById({
+            videoId,
+            startSeconds: time || 0,
+            suggestedQuality: 'hd720'
+        });
+
+        player.addEventListener('onStateChange', function onStateChange(event) {
+            if (event.data === YT.PlayerState.CUED || event.data === YT.PlayerState.PLAYING) {
+                isProgrammatic = false;
+                player.removeEventListener('onStateChange', onStateChange);
+            }
+        });
+    } else {
+        if(action === 'play' && player.getPlayerState() == YT.PlayerState.PLAYING && strict){
+            player.seekTo(player.getCurrentTime(), true);
+            player.playVideo();
+        }
+        else if (action === 'play' && player.getPlayerState() !== YT.PlayerState.PLAYING) {
+            player.seekTo(time, true);
+            player.playVideo();
+        } else if (action === 'pause' && player.getPlayerState() !== YT.PlayerState.PAUSED) {
+            player.pauseVideo();
+        } else if (action === 'seek' && Math.abs(player.getCurrentTime() - time) > 1) {
+            player.seekTo(time, true);
+        }
+
+        isProgrammatic = false;
     }
 });
+
 
 socket.on('sync_playlist', ({ playlist, playlistIndex }) => {
     playlistDiv.innerHTML = '';
@@ -81,7 +102,6 @@ socket.on('sync_playlist', ({ playlist, playlistIndex }) => {
 });
 
 socket.on('disconnect', () => console.log('Disconnected from server'));
-
 function onYouTubeIframeAPIReady() {
     player = new YT.Player('player', {
         height: '315',
@@ -104,7 +124,8 @@ function onPlayerReady() {
 }
 
 function onPlayerStateChange(event) {
-    if (!roomId) return;
+    console.log('Player State Changed', event.data);
+    if (!roomId || isProgrammatic) return;
 
     const currentTime = player.getCurrentTime();
     const playerState = event.data;
@@ -113,9 +134,8 @@ function onPlayerStateChange(event) {
     if (playerState === YT.PlayerState.PLAYING) action = 'play';
     else if (playerState === YT.PlayerState.PAUSED) action = 'pause';
     else if (playerState === YT.PlayerState.BUFFERING) action = 'seek';
-    console.log(action);
+
     if (action) {
-        // Emit only if the action is initiated by the user
         socket.emit('sync_action', { action, time: currentTime, roomId });
     }
 }

@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const http = require("http");
 const router = require('./routes/webRoutes');
 const { timeStamp } = require('console');
+const { strict } = require('assert');
 
 const app = express();
 const server = http.createServer(app);
@@ -25,36 +26,37 @@ const roomStates = {};
 const playlist = [
     "https://youtu.be/y12BRDS1CHI",
     "https://youtu.be/2Vv-BfVoq4g",
-    "https://youtu.be/2Vv-BfVoq4g",
-    "https://youtu.be/2Vv-BfVoq4g",
 ];
 
 io.on('connection', (socket) => {
 
     socket.on('join_room', ({ roomId }) => {
         socket.join(roomId);
+        const roomUsers = io.sockets.adapter.rooms.get(roomId);
+        const usersArray = roomUsers ? Array.from(roomUsers) : [];
+
         const room = roomStates[roomId] ||= {
             videoId: getYouTubeVideoId(playlist[0]),
             time: 0,
-            timeStamp: Date.now(),
-            action: 'pause',
+            action: 'play',
             playlist: [...playlist],
             playlistIndex: 0,
         };
 
-
-        socket.emit('sync_action', {
-            action: room.action,
-            time: room.time,
-            timeStamp: room.timeStamp,
-            videoId: room.videoId
-        });
-
-
-        socket.emit('sync_playlist', {
-            playlist: room.playlist,
-            playlistIndex: room.playlistIndex
-        });
+        if (usersArray.length > 1) {
+            console.log('Syncing action');
+            socket.broadcast.to(roomId).emit('sync_action', { action:room.action, time:room.time, timeStamp: room.timeStamp, videoId: room.videoId,strict:true });
+        } else {
+            socket.emit('sync_action', {
+                action: room.action,
+                time: room.time,
+                videoId: room.videoId
+            });
+            socket.emit('sync_playlist', {
+                playlist: room.playlist,
+                playlistIndex: room.playlistIndex
+            });
+        }
     });
 
     socket.on('leave_room', ({ roomId }) => {
@@ -112,3 +114,4 @@ function getYouTubeVideoId(url) {
     }
     return null;
 }
+
