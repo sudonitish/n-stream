@@ -5,34 +5,104 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stream</title>
-    <link rel="stylesheet" href="/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.7/dist/tailwind.min.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 
-<body>
-    <h1>Chilling</h1>
-    <div id="createRoomDiv">
-        <input type="text" id="roomInput" placeholder="Enter a room name">
-        <button id="joinButton">Join room</button>
-        
-    </div>
-    <div id="roomDiv" style="display: none;">
-        <div id="player"></div>
-        <div>
-            <input type="text" id="urlInput" placeholder="Enter a YouTube URL">
-            <button id="uploadMediaButton">Add Media</button>
-            <button id="leaveButton">Leave room</button>
-            <div>
-                <button id="prevButton">Prev</button>
-                <button id="nextButton">Next</button>
-            </div>
-            <div id="playlistDiv">
 
+<body class="min-h-screen relative overflow-hidden">
+    <div class="absolute inset-0 z-0">
+        <div class="absolute inset-0 bg-gradient-to-br from-indigo-900/30 via-black to-purple-900/30"></div>
+        <div id="animated-circles" class="absolute top-0 left-0 w-full h-full overflow-hidden"></div>
+        <div id="animated-waves" class="absolute bottom-0 left-0 w-full h-full overflow-hidden opacity-30"></div>
+    </div>
+
+    <div class="relative z-10 container mx-auto px-4 flex flex-col items-center justify-center min-h-screen">
+        <div id="join-screen" class="join-screen w-full max-w-md glass-panel p-8 rounded-2xl">
+            <h1 class="text-4xl font-bold mb-6 text-center gradient-text fade-in delay-200">Join Room</h1>
+
+            <div class="space-y-4 fade-in delay-400">
+                <input type="text" id="room-id" placeholder="Enter room code"
+                    class="input-field w-full px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" />
+
+                <button id="join-button"
+                    class="gradient-button w-full py-2 px-4 rounded-lg text-white font-medium flex items-center justify-center">
+                    <span>Join Room</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="ml-2 h-4 w-4" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12h14"></path>
+                        <path d="m12 5 7 7-7 7"></path>
+                    </svg>
+                </button>
             </div>
+        </div>
+        <div id="playlist"></div>
+        <!-- 
+            <div>
+                <input type="text" id="urlInput" placeholder="Enter a YouTube URL">
+                <button id="uploadMediaButton">Add Media</button>
+                <div>
+                    <button id="prevButton">Prev</button>
+                    <button id="nextButton">Next</button>
+                </div>
+                
+            </div> -->
+        <div id="video-player" class="video-player w-full flex flex-col items-center">
+            <h2 id="room-display"
+                class="text-2xl md:text-3xl font-bold mb-6 text-center gradient-text fade-in delay-300"></h2>
+
+
+            <div id="player"
+                class="w-full max-w-3xl aspect-video rounded-lg overflow-hidden shadow-[0_0_25px_rgba(123,104,238,0.4)] mb-8 fade-in delay-500">
+            </div>
+
+            <div
+                class="bg-black/60 backdrop-blur-sm p-4 rounded-lg w-full max-w-md flex items-center gap-4 fade-in delay-700">
+                <button id="play-button" class="text-white hover:bg-white/10 p-2 rounded-full">
+                    <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <rect x="6" y="4" width="4" height="16"></rect>
+                        <rect x="14" y="4" width="4" height="16"></rect>
+                    </svg>
+                </button>
+
+                <div class="flex-1 flex items-center gap-2">
+                    <button id="mute-button" class="text-white hover:bg-white/10 p-2 rounded-full">
+                        <svg id="volume-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                        </svg>
+                        <svg id="mute-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden"
+                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                            <line x1="23" y1="9" x2="17" y2="15"></line>
+                            <line x1="17" y1="9" x2="23" y2="15"></line>
+                        </svg>
+                    </button>
+                    <input type="range" id="volume-slider" min="0" max="100" value="30"
+                        class="flex-1 h-2 bg-white/20 rounded-lg appearance-none cursor-pointer" />
+                </div>
+            </div>
+
+            <button id="leave-button" class="mt-6 text-white/70 hover:text-white transition-colors fade-in delay-900">
+                Leave Room
+            </button>
         </div>
     </div>
     <script src="https://www.youtube.com/iframe_api"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="main.js"></script>
+    <script src="player.js"></script>
 </body>
 
 </html>
