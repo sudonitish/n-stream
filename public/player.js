@@ -111,25 +111,17 @@ function init() {
     playButton.addEventListener('click', togglePlay);
     muteButton.addEventListener('click', toggleMute);
     volumeSlider.addEventListener('input', handleVolumeChange);
-    // nextButton.onclick = () => roomId && socket.emit('change_media', { action: 'next', roomId });
-    // prevButton.onclick = () => roomId && socket.emit('change_media', { action: 'prev', roomId });
-    // uploadMediaButton.onclick = () => {
-    //     const videoUrl = urlInput.value.trim();
-    //     if (!isValidYouTubeURL(videoUrl)) {
-    //         return alert('Invalid YouTube URL');
-    //     }
-    //     if (roomId) {
-    //         socket.emit('upload_media', { videoUrl, roomId });
-    //     }
-    // };
-
-}
-
-document.addEventListener('DOMContentLoaded', () => { });
-
-socket.on('connect', socketEvents);
-function socketEvents() {
-    console.log('Connected to server')
+    nextButton.onclick = () => roomId && socket.emit('change_media', { action: 'next', roomId });
+    prevButton.onclick = () => roomId && socket.emit('change_media', { action: 'prev', roomId });
+    uploadMediaButton.onclick = () => {
+        const videoUrl = urlInput.value.trim();
+        if (!isValidYouTubeURL(videoUrl)) {
+            return alert('Invalid YouTube URL');
+        }
+        if (roomId) {
+            socket.emit('upload_media', { videoUrl, roomId });
+        }
+    };
     socket.on('change_media', ({ videoId }) => {
         if (player) {
             player.loadVideoById({ videoId, startSeconds: 0, suggestedQuality: 'hd720' });
@@ -181,7 +173,13 @@ function socketEvents() {
     });
     socket.on('disconnect', () => console.log('Disconnected from server'));
 
+}
 
+document.addEventListener('DOMContentLoaded', () => { });
+
+socket.on('connect', socketOnConnect);
+function socketOnConnect() {
+    console.log('Connected to server')
 };
 
 function isValidYouTubeURL(url) {
