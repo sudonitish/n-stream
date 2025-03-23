@@ -103,27 +103,6 @@ function handleLeave() {
     }, 500);
 }
 
-
-
-// Toggle mute
-function toggleMute() {
-    audio.muted = !audio.muted;
-    isMuted = audio.muted;
-
-    if (isMuted) {
-        volumeIcon.classList.add('hidden');
-        muteIcon.classList.remove('hidden');
-    } else {
-        volumeIcon.classList.remove('hidden');
-        muteIcon.classList.add('hidden');
-    }
-}
-
-// Handle volume change
-function handleVolumeChange() {
-    audio.volume = volumeSlider.value / 100;
-}
-
 // Initialize
 function init() {
     createBackgroundElements();
@@ -146,7 +125,7 @@ function init() {
 
 }
 
-document.addEventListener('DOMContentLoaded', () => {});
+document.addEventListener('DOMContentLoaded', () => { });
 
 socket.on('connect', socketEvents);
 function socketEvents() {
@@ -213,16 +192,20 @@ function onYouTubeIframeAPIReady() {
         height: '100%',
         width: '100%',
         videoId: null,
-        playerVars: { 'playsinline': 1 },
+        playerVars: {
+            playsinline: 1,
+            modestbranding: 1,
+            controls: 1,
+            volume: 30,
+        },
         events: {
             'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange
+            'onStateChange': onPlayerStateChange,
         }
     });
 }
 
 function onPlayerStateChange(event) {
-    console.log("event")
     if (!roomId || isProgrammatic) return;
     const currentTime = player.getCurrentTime();
     const playerState = event.data;
@@ -230,14 +213,15 @@ function onPlayerStateChange(event) {
     if (playerState === YT.PlayerState.PLAYING) action = 'play';
     else if (playerState === YT.PlayerState.PAUSED) action = 'pause';
     else if (playerState === YT.PlayerState.BUFFERING) action = 'seek';
+    else if (playerState === YT.PlayerState.ENDED) action = 'end';
 
     if (action) {
         socket.emit('sync_action', { action, time: currentTime, roomId });
     }
-    if (action === 'oause') {
+    if (action === 'pause') {
         playIcon.classList.remove('hidden');
         pauseIcon.classList.add('hidden');
-    } else if(action === 'play') {
+    } else if (action === 'play') {
         playIcon.classList.add('hidden');
         pauseIcon.classList.remove('hidden');
     }
@@ -247,11 +231,28 @@ function onPlayerReady() {
     init();
 }
 function togglePlay() {
-    console.log(player)
     const currentState = player.getPlayerState();
     if (currentState === YT.PlayerState.PLAYING) {
         player.pauseVideo();
     } else {
         player.playVideo();
     }
+}
+
+function toggleMute() {
+    const isMuted = player.isMuted();
+    player[isMuted ? 'unMute' : 'mute']();  // Toggle mute/unmute
+    volumeIcon.classList.toggle('hidden', !isMuted);
+    muteIcon.classList.toggle('hidden', isMuted);
+}
+
+function handleVolumeChange() {
+    const volume = parseInt(volumeSlider.value, 10);
+    player.setVolume(volume);
+
+    const isMuted = volume === 0;
+    player[isMuted ? 'mute' : 'unMute'](); // Mute if volume is 0, otherwise unmute
+
+    volumeIcon.classList.toggle('hidden', isMuted);
+    muteIcon.classList.toggle('hidden', !isMuted);
 }
