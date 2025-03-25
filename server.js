@@ -24,8 +24,8 @@ app.use('/', router);
 
 const roomStates = {};
 const playlist = [
-    "https://youtu.be/y12BRDS1CHI",
     "https://youtu.be/2Vv-BfVoq4g",
+    "https://youtu.be/y12BRDS1CHI",
 ];
 
 io.on('connection', (socket) => {
