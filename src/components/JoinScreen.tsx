@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import { useState } from "react";
 import { Input } from "./Input";
 import { Button } from "./Button";
 

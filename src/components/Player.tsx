@@ -31,6 +31,8 @@ const Player = forwardRef<YouTubePlayer, PlayerProps>(({ socket, roomId,currentV
   }
 
   const onPlayerStateChange = (event: YouTubeEvent) => {
+    console.log(event)
+
     if (!roomId || isProgrammatic) return
 
     const currentTime = playerRef.current?.getCurrentTime() || 0

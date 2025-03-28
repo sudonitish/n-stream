@@ -37,7 +37,6 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     const roomUsers = io.sockets.adapter.rooms.get(roomId);
     const usersArray = roomUsers ? Array.from(roomUsers) : [];
-
     const room = roomStates[roomId] ||= {
       videoId: getYouTubeVideoId(playlist[0]),
       time: 0,

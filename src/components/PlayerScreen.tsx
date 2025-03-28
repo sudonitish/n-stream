@@ -2,117 +2,28 @@
 
 import type React from "react"
 
-import { useEffect, useRef, useState } from "react"
+import { forwardRef, useEffect, useRef, useState } from "react"
 import type { Socket } from "socket.io-client"
 import type { YouTubePlayer } from "react-youtube"
 import { Button } from "./Button"
 import Player from "./Player"
 
 // Define types at the top
-type PlayerRef = React.RefObject<YouTubePlayer>
 
 interface ComponentTypes {
-    roomId: string
-    socket: Socket
-    handleLeave: () => void
+    roomId: string;
+    socket: Socket;
+    currentVideoID: string;
+    myPlayList: string[];
+    isProgrammatic: boolean;
+    handleLeave: () => void;
 }
+const PlayerScreen= forwardRef<YouTubePlayer, ComponentTypes>(({ roomId, socket, handleLeave , currentVideoID , isProgrammatic , myPlayList}, ref) => {
 
-export default function PlayerScreen({ roomId, socket, handleLeave }: ComponentTypes) {
-    const [myPlayList, setMyPlayList] = useState<string[]>([])
-    const playerRef = useRef<YouTubePlayer>(null)
-    const [isProgrammatic, setIsProgrammatic] = useState(false)
-
-    function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
-        const value = event.target.value.trim()
-        event.target.value = value
-    }
-
-    const changeMedia = ({ videoId }: { videoId: string }) => {
-        if (playerRef.current) {
-            playerRef.current.loadVideoById({ videoId, startSeconds: 0 })
-        }
-    }
-    const [currentVideoID, setCurrentVideoId] = useState("")
-
-    const syncAction = ({
-        action,
-        time,
-        videoId,
-        strict,
-    }: {
-        action: string
-        time: number
-        videoId?: string
-        strict?: boolean
-    }) => {
-        if (!playerRef.current) return
-
-
-        setIsProgrammatic(true)
-
-        if (videoId && currentVideoID !== videoId) {
-            setCurrentVideoId(videoId)
-            playerRef.current.loadVideoById({
-                videoId,
-                startSeconds: time || 0,
-            })
-
-            playerRef.current.addEventListener("onStateChange", function onStateChange(event: any) {
-                if (event.data === 1 || event.data === 5) {
-                    setIsProgrammatic(false)
-                    playerRef.current?.removeEventListener("onStateChange", onStateChange)
-                }
-            })
-        } else {
-            if (action === "play" && playerRef.current.getPlayerState() === 1 && strict) {
-                // PLAYING
-                playerRef.current.seekTo(playerRef.current.getCurrentTime(), true)
-                playerRef.current.playVideo()
-            } else if (action === "play" && playerRef.current.getPlayerState() !== 1) {
-                playerRef.current.seekTo(time, true)
-                playerRef.current.playVideo()
-            } else if (action === "pause" && playerRef.current.getPlayerState() !== 2) {
-                // PAUSED
-                playerRef.current.pauseVideo()
-            } else if (action === "seek" && Math.abs(playerRef.current.getCurrentTime() - time) > 1) {
-                playerRef.current.seekTo(time, true)
-            }
-
-            setIsProgrammatic(false)
-        }
-    }
-
-    const syncPlaylist = ({
-        playlist,
-        playlistIndex,
-    }: {
-        playlist: string[]
-        playlistIndex?: number
-    }) => {
-        setMyPlayList(playlist)
-    }
-
-    const disconnect = () => console.log("Disconnected from server")
-
-    useEffect(() => {
-        socket.on("change_media", changeMedia)
-        socket.on("sync_action", syncAction)
-        socket.on("sync_playlist", syncPlaylist)
-        socket.on("disconnect", disconnect)
-
-        return () => {
-            socket.off("change_media", changeMedia)
-            socket.off("sync_action", syncAction)
-            socket.off("sync_playlist", syncPlaylist)
-            socket.off("disconnect", disconnect)
-        }
-    }, [socket])
 
     const handleAddMedia = () => {
-        // Implement add media functionality
         const input = document.getElementById("url-input") as HTMLInputElement
         if (input && input.value) {
-            // Add implementation here
             console.log("Adding media:", input.value)
         }
     }
@@ -127,14 +38,14 @@ export default function PlayerScreen({ roomId, socket, handleLeave }: ComponentT
                     Room: {roomId}
                 </h2>
 
-                <Player socket={socket} roomId={roomId} currentVideoID={currentVideoID} isProgrammatic={isProgrammatic} ref={playerRef} />
+                <Player socket={socket} roomId={roomId} currentVideoID={currentVideoID} isProgrammatic={isProgrammatic} ref={ref} />
 
                 <div className="space-y-4 fade-in delay-400">
                     <input
                         type="text"
                         id="url-input"
                         placeholder="Enter a YouTube URL"
-                        onChange={handleInputChange}
+                        // onChange={handleInputChange}
                         className="input-field w-full px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
 
@@ -145,7 +56,7 @@ export default function PlayerScreen({ roomId, socket, handleLeave }: ComponentT
             <Playlist myPlayList={myPlayList} />
         </div>
     )
-}
+})
 
 const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
     return (
@@ -160,3 +71,4 @@ const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
     )
 }
 
+export default PlayerScreen;
