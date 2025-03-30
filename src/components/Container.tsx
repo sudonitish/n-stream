@@ -1,203 +1,314 @@
-'use client';
-import { useState, useEffect, useRef } from 'react';
-import io, { Socket } from 'socket.io-client';
-import JoinScreen from './JoinScreen';
-import PlayerScreen from './PlayerScreen';
-import Background from './Background';
+"use client"
+
+import { useState, useEffect, useRef } from "react"
+import io, { type Socket } from "socket.io-client"
+import JoinScreen from "./JoinScreen"
+import PlayerScreen from "./PlayerScreen"
+import Background from "./Background"
 import type { YouTubePlayer } from "react-youtube"
 
-import './style.css'
-
 export default function Container() {
-    const [webSocket, setWebSocket] = useState<Socket | null>(null);
-    const [roomId, setRoomId] = useState('');
-    const playerRef = useRef<YouTubePlayer>(null)
-    const [currentVideoID, setCurrentVideoId] = useState("")
-    const [myPlayList, setMyPlayList] = useState<string[]>([])
-    const [isProgrammatic, setIsProgrammatic] = useState(false)
+  const [webSocket, setWebSocket] = useState<Socket | null>(null)
+  const [roomId, setRoomId] = useState("")
+  const playerRef = useRef<YouTubePlayer | null>(null)
+  const [currentVideoID, setCurrentVideoId] = useState("")
+  const [myPlayList, setMyPlayList] = useState<string[]>([])
+  const [isProgrammatic, setIsProgrammatic] = useState(false)
+  const [isConnecting, setIsConnecting] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState<boolean>(true)
+  const [playerReady, setPlayerReady] = useState(false)
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const pendingSyncRef = useRef<any>(null)
 
-    function socketOnConnect() {
-        console.log('Connected to server')
-    };
-    const handleJoin = (roomId: string) => {
-        if (roomId && webSocket) {
-            webSocket?.emit('join_room', { roomId: roomId.trim() });
-            setRoomId(roomId);
-        }
-    };
-    function handleLeave() {
+  const handleJoin = (roomId: string) => {
+    if (roomId && webSocket) {
+      console.log(`Joining room: ${roomId}`)
+      webSocket?.emit("join_room", { roomId: roomId.trim() })
+      setRoomId(roomId)
+    }
+  }
 
-        if (roomId && webSocket) {
-            webSocket?.emit('leave_room', { roomId });
-            setRoomId('');
-        }
+  const handleLeave = () => {
+    if (roomId && webSocket) {
+      console.log(`Leaving room: ${roomId}`)
+      webSocket?.emit("leave_room", { roomId })
+      setRoomId("")
+      // Reset video state
+      setCurrentVideoId("")
+      setMyPlayList([])
+      // Cancel any pending sync
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current)
+      }
+    }
+  }
+
+  const changeMedia = ({ videoId }: { videoId: string }) => {
+    console.log("Changing media to:", videoId)
+    setCurrentVideoId(videoId)
+    if (playerRef.current && playerReady) {
+      playerRef.current.loadVideoById({ videoId, startSeconds: 0 })
+      // Store this as the pending sync to ensure it's applied
+      pendingSyncRef.current = { action: "pause", time: 0, videoId }
+    } else {
+      console.warn("Player not ready for changeMedia")
+      // Store this as the pending sync to apply when player is ready
+      pendingSyncRef.current = { action: "pause", time: 0, videoId }
+    }
+  }
+
+  const syncAction = ({
+    action,
+    time,
+    videoId,
+    strict,
+  }: {
+    action: string
+    time: number
+    videoId?: string
+    strict?: boolean
+  }) => {
+    console.log(`Sync action received: ${action} at ${time} for video ${videoId || currentVideoID}`)
+
+    // Cancel any pending sync
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current)
     }
 
-    function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
-        const value = event.target.value.trim()
-        event.target.value = value
+    // Store this as the pending sync
+    pendingSyncRef.current = { action, time, videoId, strict }
+
+    // If player is not ready, we'll apply this sync when it becomes ready
+    if (!playerRef.current || !playerReady) {
+      console.warn("Player not ready for syncAction, will apply when ready")
+      return
     }
 
-    const changeMedia = ({ videoId }: { videoId: string }) => {
-        if (playerRef.current) {
-            playerRef.current.loadVideoById({ videoId, startSeconds: 0 })
-        }
-    }
+    // Apply the sync action
+    applySyncAction()
+  }
 
+  // Function to apply the pending sync action
+  const applySyncAction = () => {
+    if (!pendingSyncRef.current || !playerRef.current || !playerReady) return
 
-    const syncAction = ({
-        action,
-        time,
-        videoId,
-        strict,
-    }: {
-        action: string
-        time: number
-        videoId?: string
-        strict?: boolean
-    }) => {
-        // if (!playerRef.current) return
+    const { action, time, videoId, strict } = pendingSyncRef.current
 
-        setIsProgrammatic(true)
+    setIsProgrammatic(true)
 
-        if (videoId && currentVideoID !== videoId) {
-            setCurrentVideoId(videoId)
-            playerRef?.current?.loadVideoById({
-                videoId,
-                startSeconds: time || 0,
-            })
+    try {
+      if (videoId && currentVideoID !== videoId) {
+        console.log("Loading new video:", videoId)
+        setCurrentVideoId(videoId)
 
-            playerRef?.current?.addEventListener("onStateChange", function onStateChange(event: any) {
-                if (event.data === 1 || event.data === 5) {
-                    setIsProgrammatic(false)
-                    playerRef.current?.removeEventListener("onStateChange", onStateChange)
-                }
-            })
-        } else {
-            if (action === "play" && playerRef.current.getPlayerState() === 1 && strict) {
-                // PLAYING
-                playerRef.current.seekTo(playerRef.current.getCurrentTime(), true)
-                playerRef.current.playVideo()
-            } else if (action === "play" && playerRef.current.getPlayerState() !== 1) {
-                playerRef.current.seekTo(time, true)
-                playerRef.current.playVideo()
-            } else if (action === "pause" && playerRef.current.getPlayerState() !== 2) {
-                // PAUSED
-                playerRef.current.pauseVideo()
-            } else if (action === "seek" && Math.abs(playerRef.current.getCurrentTime() - time) > 1) {
-                playerRef.current.seekTo(time, true)
+        playerRef.current.loadVideoById({
+          videoId,
+          startSeconds: time || 0,
+        })
+
+        // Handle the action after video loads
+        const onStateChange = (event: any) => {
+          if (event.data === 1 || event.data === 5) {
+            // Video started playing or is cued
+            if (action === "pause") {
+              console.log("Pausing video after load")
+              playerRef.current?.pauseVideo()
+            } else if (action === "play") {
+              console.log("Ensuring video plays after load")
+              playerRef.current?.playVideo()
             }
 
             setIsProgrammatic(false)
-        }
-    }
-
-    const syncPlaylist = ({
-        playlist,
-        playlistIndex,
-    }: {
-        playlist: string[]
-        playlistIndex?: number
-    }) => {
-        setMyPlayList(playlist)
-    }
-
-    const disconnect = () => console.log("Disconnected from server")
-
-
-
-    useEffect(() => {
-        const socket = io('http://localhost:3000');
-
-        socket.on("change_media", changeMedia)
-        socket.on("sync_action", syncAction)
-        socket.on("sync_playlist", syncPlaylist)
-        socket.on("disconnect", disconnect)
-        setWebSocket(socket);
-        socket.on('connect', socketOnConnect);
-
-        return () => {
-            socket.off("change_media", changeMedia)
-            socket.off("sync_action", syncAction)
-            socket.off("sync_playlist", syncPlaylist)
-            socket.off("disconnect", disconnect)
-            socket.off('connect', socketOnConnect);
-            socket.disconnect();
+            playerRef.current?.removeEventListener("onStateChange", onStateChange)
+          }
         }
 
-    }, []);
+        playerRef.current.addEventListener("onStateChange", onStateChange)
+      } else {
+        // Same video, just sync state
+        if (action === "play") {
+          console.log(`Playing video at ${time}`)
+          playerRef.current.seekTo(time, true)
+          playerRef.current.playVideo()
+        } else if (action === "pause") {
+          console.log(`Pausing video at ${time}`)
+          playerRef.current.seekTo(time, true)
+          playerRef.current.pauseVideo()
+        } else if (action === "seek") {
+          console.log(`Seeking to ${time}`)
+          playerRef.current.seekTo(time, true)
+        }
 
-    return (
+        setIsProgrammatic(false)
+      }
+
+      // Clear the pending sync
+      pendingSyncRef.current = null
+    } catch (error) {
+      console.error("Error in applySyncAction:", error)
+      setIsProgrammatic(false)
+    }
+  }
+
+  const syncPlaylist = ({
+    playlist,
+    playlistIndex,
+  }: {
+    playlist: string[]
+    playlistIndex?: number
+  }) => {
+    console.log("Syncing playlist:", playlist, "current index:", playlistIndex)
+    setMyPlayList(playlist)
+  }
+
+  // Function to set the player reference from the child component
+  const setPlayerReference = (player: YouTubePlayer) => {
+    console.log("Player reference set")
+    playerRef.current = player
+    setPlayerReady(true)
+    setLoading(false)
+
+    // Apply any pending sync action
+    if (pendingSyncRef.current) {
+      console.log("Applying pending sync action")
+      syncTimeoutRef.current = setTimeout(() => {
+        applySyncAction()
+      }, 500) // Give a little time for the player to fully initialize
+    }
+  }
+
+  useEffect(() => {
+    let socket: Socket
+
+    try {
+      // Determine the socket URL based on environment
+      const socketUrl =
+        process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== "undefined" && window.location.origin) || "/"
+      console.log("Connecting to socket URL:", socketUrl)
+
+      socket = io(socketUrl, {
+        transports: ["websocket", "polling"],
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      })
+
+      socket.io.on("reconnect_attempt", () => {
+        console.log("Attempting to reconnect...")
+      })
+
+      socket.io.on("reconnect_failed", () => {
+        setError("Failed to reconnect after multiple attempts. Please refresh the page.")
+      })
+
+      socket.on("connect", () => {
+        console.log("Connected to server with ID:", socket.id)
+        setWebSocket(socket)
+        setIsConnecting(false)
+      })
+
+      socket.on("connect_error", (err) => {
+        console.error("Connection error:", err)
+        setError("Failed to connect to server. Please try again later.")
+        setIsConnecting(false)
+      })
+
+      socket.on("change_media", changeMedia)
+      socket.on("sync_action", syncAction)
+      socket.on("sync_playlist", syncPlaylist)
+      socket.on("disconnect", () => console.log("Disconnected from server"))
+
+      return () => {
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current)
+        }
+        socket.off("change_media", changeMedia)
+        socket.off("sync_action", syncAction)
+        socket.off("sync_playlist", syncPlaylist)
+        socket.disconnect()
+      }
+    } catch (err) {
+      console.error("Socket initialization error:", err)
+      setError("Failed to initialize connection. Please try again later.")
+      setIsConnecting(false)
+      return () => {
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current)
+        }
+      }
+    }
+  }, [])
+
+  // Effect to check loading state
+  useEffect(() => {
+    // If we're connected but player isn't ready after 10 seconds, stop showing loading
+    if (!isConnecting && loading) {
+      const timeout = setTimeout(() => {
+        if (loading) {
+          console.log("Timeout reached, forcing loading to false")
+          setLoading(false)
+        }
+      }, 10000)
+
+      return () => clearTimeout(timeout)
+    }
+  }, [isConnecting, loading])
+
+  return (
+    <>
+      <Background />
+      {error ? (
+        <Error message={error} />
+      ) : (
         <>
-            <Background />
-            {roomId ? (
-                <PlayerScreen 
-                roomId={roomId} 
-                socket={webSocket!} 
-                handleLeave={handleLeave} 
-                myPlayList={myPlayList}  
-                currentVideoID={currentVideoID} 
-                isProgrammatic={isProgrammatic}
-                ref={playerRef} />
-            ) : (
-                <JoinScreen handleJoin={handleJoin} />
-            )}
+          {isConnecting && <Loading message="Connecting to server..." />}
+
+          <PlayerScreen
+            loading={loading}
+            roomId={roomId}
+            socket={webSocket!}
+            handleLeave={handleLeave}
+            myPlayList={myPlayList}
+            currentVideoID={currentVideoID}
+            isProgrammatic={isProgrammatic}
+            onPlayerReady={setPlayerReference}
+          />
+          <JoinScreen loading={loading || isConnecting} roomId={roomId} handleJoin={handleJoin} />
         </>
-    );
+      )}
+    </>
+  )
 }
 
-// function createBackgroundElements() {
-//     // Create circles
-//     for (let i = 0; i < 30; i++) {
-//         const circle = document.createElement('div');
-//         circle.className = 'animated-circle';
+const Loading = ({ message = "Setting up your environment..." }: { message?: string }) => {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="relative z-10 text-center">
+        <div className="glass-panel p-8 rounded-xl">
+          <h2 className="text-2xl font-bold mb-4 gradient-text">{message}</h2>
+          <div className="w-16 h-16 border-4 border-t-purple-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mx-auto"></div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-//         const size = Math.random() * 20 + 5;
-//         const r = Math.random() * 100 + 100;
-//         const g = Math.random() * 50;
-//         const b = Math.random() * 255;
-//         const opacity = Math.random() * 0.5 + 0.2;
-
-//         circle.style.width = `${size}px`;
-//         circle.style.height = `${size}px`;
-//         circle.style.top = `${Math.random() * 100}%`;
-//         circle.style.left = `${Math.random() * 100}%`;
-//         circle.style.backgroundColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-//         circle.style.boxShadow = `0 0 ${Math.random() * 30 + 10}px rgba(${r}, ${g}, ${b}, ${opacity + 0.1})`;
-//         circle.style.animation = `float ${Math.random() * 15 + 10}s linear infinite, pulse ${Math.random() * 5 + 2}s ease-in-out infinite alternate`;
-//         circle.style.animationDelay = `${Math.random() * 5}s`;
-
-//         animatedCircles.appendChild(circle);
-//     }
-
-//     // Create waves
-//     for (let i = 0; i < 5; i++) {
-//         const wave = document.createElement('div');
-//         wave.className = 'animated-wave';
-
-//         const r = Math.random() * 100 + 100;
-//         const g = Math.random() * 100;
-//         const b = Math.random() * 255;
-
-//         wave.style.background = `rgba(${r}, ${g}, ${b}, 0.1)`;
-//         wave.style.animation = `wave ${10 + i * 3}s ease-in-out infinite alternate`;
-//         wave.style.animationDelay = `${i * 0.5}s`;
-//         wave.style.bottom = `${i * 10 - 40}px`;
-
-//         animatedWaves.appendChild(wave);
-//     }
-// }
-
-// createBackgroundElements();
-//     nextButton.onclick = () => roomId && socket.emit('change_media', { action: 'next', roomId });
-//     prevButton.onclick = () => roomId && socket.emit('change_media', { action: 'prev', roomId });
-//     uploadMediaButton.onclick = () => {
-//         const videoUrl = urlInput.value.trim();
-//         if (!isValidYouTubeURL(videoUrl)) {
-//             return alert('Invalid YouTube URL');
-//         }
-//         if (roomId) {
-//             socket.emit('upload_media', { videoUrl, roomId });
-//         }
-// };
+const Error = ({ message }: { message: string }) => {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="relative z-10 text-center">
+        <div className="glass-panel p-8 rounded-xl">
+          <h2 className="text-2xl font-bold mb-4 text-red-400">Connection Error</h2>
+          <p className="mb-4">{message}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="gradient-button py-2 px-4 rounded-lg text-white font-medium"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 

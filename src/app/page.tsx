@@ -1,8 +1,12 @@
+"use client"
+
 import Container from "@/components/Container"
 
-export const Home = () => {
+export default function Home() {
   return (
-    <Container />
+    <main className="min-h-screen">
+      <Container />
+    </main>
   )
 }
-export default Home
+
