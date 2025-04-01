@@ -23,6 +23,9 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
   const playerRef = useRef<YouTubePlayer | null>(null)
   const [playerInitialized, setPlayerInitialized] = useState(false)
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const playerReadyCallbackRef = useRef<boolean>(false)
+  const isUserActionRef = useRef<boolean>(false)
+  const lastActionRef = useRef<{ action: string; time: number; timestamp: number } | null>(null)
 
   // Start/stop progress tracking based on play state
   useEffect(() => {
@@ -49,14 +52,10 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
   useEffect(() => {
     if (playerInitialized && playerRef.current && currentVideoID) {
       console.log("Loading video from effect:", currentVideoID)
-      playerRef.current.loadVideoById({ videoId: currentVideoID, startSeconds: 0 })
-      // Pause by default when loading a new video
-      setTimeout(() => {
-        if (playerRef.current) {
-          playerRef.current.pauseVideo()
-          setIsPlaying(false)
-        }
-      }, 100)
+      // Use cueVideoById instead of loadVideoById to prevent auto-play
+      isUserActionRef.current = false
+      playerRef.current.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
+      setIsPlaying(false)
     }
   }, [currentVideoID, playerInitialized])
 
@@ -67,69 +66,122 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
     // Set initial volume
     playerRef.current.setVolume(volume)
 
-    // Get video duration
-    setDuration(playerRef.current.getDuration())
-
     // Pause by default
+    isUserActionRef.current = false
     event.target.pauseVideo()
     setIsPlaying(false)
 
-    // Notify parent component that player is ready
+    // Mark player as initialized
     setPlayerInitialized(true)
-    onPlayerReady(event.target)
+
+    // Notify parent component that player is ready
+    // Only do this once to prevent multiple callbacks
+    if (!playerReadyCallbackRef.current) {
+      console.log("Calling onPlayerReady callback")
+      onPlayerReady(event.target)
+      playerReadyCallbackRef.current = true
+    }
 
     // If we already have a video ID, load it
     if (currentVideoID) {
       console.log("Loading initial video:", currentVideoID)
-      event.target.loadVideoById({ videoId: currentVideoID, startSeconds: 0 })
-      // Pause by default
-      setTimeout(() => {
-        if (playerRef.current) {
-          playerRef.current.pauseVideo()
-          setIsPlaying(false)
-        }
-      }, 100)
+      // Use cueVideoById instead of loadVideoById to prevent auto-play
+      event.target.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
     }
+
+    // Get video duration after player is ready
+    setTimeout(() => {
+      if (playerRef.current) {
+        try {
+          const duration = playerRef.current.getDuration()
+          if (duration && duration > 0) {
+            setDuration(duration)
+          }
+        } catch (e) {
+          console.warn("Could not get duration yet")
+        }
+      }
+    }, 500)
   }
 
   const onPlayerStateChange = (event: YouTubeEvent) => {
-    if (!roomId || isProgrammatic || !playerRef.current) return
+    if (!roomId || !playerRef.current) return
 
     const currentTime = playerRef.current.getCurrentTime() || 0
     const playerState = event.data
-    let action: string | null = null
 
+    // Update local state based on player state
     if (playerState === 1) {
       // Playing
-      action = "play"
       setIsPlaying(true)
-      setDuration(playerRef.current.getDuration())
+
+      // Update duration when video starts playing
+      try {
+        const duration = playerRef.current.getDuration()
+        if (duration && duration > 0) {
+          setDuration(duration)
+        }
+      } catch (e) {
+        console.warn("Could not get duration")
+      }
     } else if (playerState === 2) {
       // Paused
-      action = "pause"
       setIsPlaying(false)
-    } else if (playerState === 3) {
-      // Buffering
-      action = "seek"
     } else if (playerState === 0) {
       // Ended
-      action = "end"
       setIsPlaying(false)
     }
 
-    if (action && socket) {
-      console.log(`Emitting ${action} at ${currentTime} to server`)
-      socket.emit("sync_action", {
-        action,
-        time: currentTime,
-        roomId,
-        videoId: playerRef.current.getVideoData()?.video_id,
-      })
+    // Only emit events if this was a user action and not programmatic
+    if (isUserActionRef.current && !isProgrammatic) {
+      let action: string | null = null
+
+      if (playerState === 1) {
+        action = "play"
+      } else if (playerState === 2) {
+        action = "pause"
+      } else if (playerState === 0) {
+        action = "end"
+      }
+
+      if (action && socket) {
+        // Check if this is a duplicate action (prevent rapid fire events)
+        const now = Date.now()
+        const lastAction = lastActionRef.current
+
+        if (
+          !lastAction ||
+          lastAction.action !== action ||
+          Math.abs(lastAction.time - currentTime) > 1 ||
+          now - lastAction.timestamp > 500
+        ) {
+          console.log(`Emitting ${action} at ${currentTime} to server (user action)`)
+          socket.emit("sync_action", {
+            action,
+            time: currentTime,
+            roomId,
+            videoId: playerRef.current.getVideoData()?.video_id,
+          })
+
+          // Store this action to prevent duplicates
+          lastActionRef.current = {
+            action,
+            time: currentTime,
+            timestamp: now,
+          }
+        }
+      }
+
+      // Reset the user action flag
+      isUserActionRef.current = false
     }
   }
 
   const togglePlay = () => {
     if (!playerRef.current) return
+
+    // Mark this as a user action
+    isUserActionRef.current = true
 
     if (isPlaying) {
       playerRef.current.pauseVideo()
@@ -170,18 +222,29 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!playerRef.current) return
 
+    // Mark this as a user action
+    isUserActionRef.current = true
+
     const seekTime = Number.parseFloat(e.target.value)
     playerRef.current.seekTo(seekTime, true)
     setCurrentTime(seekTime)
 
     // Emit seek event to sync with other users
     if (socket && roomId) {
+      console.log(`Emitting seek to ${seekTime} to server (user action)`)
       socket.emit("sync_action", {
         action: "seek",
         time: seekTime,
         roomId,
         videoId: playerRef.current.getVideoData()?.video_id,
       })
+
+      // Store this action to prevent duplicates
+      lastActionRef.current = {
+        action: "seek",
+        time: seekTime,
+        timestamp: Date.now(),
+      }
     }
   }
 

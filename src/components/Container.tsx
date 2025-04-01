@@ -20,6 +20,9 @@ export default function Container() {
   const [playerReady, setPlayerReady] = useState(false)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const pendingSyncRef = useRef<any>(null)
+  const lastReceivedActionRef = useRef<{ action: string; time: number; videoId?: string; timestamp: number } | null>(
+    null,
+  )
 
   const handleJoin = (roomId: string) => {
     if (roomId && webSocket) {
@@ -47,14 +50,23 @@ export default function Container() {
   const changeMedia = ({ videoId }: { videoId: string }) => {
     console.log("Changing media to:", videoId)
     setCurrentVideoId(videoId)
-    if (playerRef.current && playerReady) {
-      playerRef.current.loadVideoById({ videoId, startSeconds: 0 })
-      // Store this as the pending sync to ensure it's applied
-      pendingSyncRef.current = { action: "pause", time: 0, videoId }
+
+    // Store this as the pending sync to ensure it's applied
+    pendingSyncRef.current = { action: "pause", time: 0, videoId }
+
+    // If player reference exists, apply immediately
+    if (playerRef.current) {
+      console.log("Player reference exists, cueing video immediately")
+      // Use cueVideoById instead of loadVideoById to prevent auto-play
+      setIsProgrammatic(true)
+      playerRef.current.cueVideoById({ videoId, startSeconds: 0 })
+
+      // Reset programmatic flag after a short delay
+      setTimeout(() => {
+        setIsProgrammatic(false)
+      }, 500)
     } else {
-      console.warn("Player not ready for changeMedia")
-      // Store this as the pending sync to apply when player is ready
-      pendingSyncRef.current = { action: "pause", time: 0, videoId }
+      console.warn("Player reference doesn't exist yet, will apply when ready")
     }
   }
 
@@ -69,6 +81,29 @@ export default function Container() {
     videoId?: string
     strict?: boolean
   }) => {
+    // Check if this is a duplicate action we just received
+    const now = Date.now()
+    const lastAction = lastReceivedActionRef.current
+
+    if (
+      lastAction &&
+      lastAction.action === action &&
+      Math.abs(lastAction.time - time) < 1 &&
+      lastAction.videoId === videoId &&
+      now - lastAction.timestamp < 500
+    ) {
+      console.log("Ignoring duplicate sync action")
+      return
+    }
+
+    // Store this action to prevent duplicates
+    lastReceivedActionRef.current = {
+      action,
+      time,
+      videoId,
+      timestamp: now,
+    }
+
     console.log(`Sync action received: ${action} at ${time} for video ${videoId || currentVideoID}`)
 
     // Cancel any pending sync
@@ -79,19 +114,18 @@ export default function Container() {
     // Store this as the pending sync
     pendingSyncRef.current = { action, time, videoId, strict }
 
-    // If player is not ready, we'll apply this sync when it becomes ready
-    if (!playerRef.current || !playerReady) {
-      console.warn("Player not ready for syncAction, will apply when ready")
-      return
+    // If player reference exists, apply immediately
+    if (playerRef.current) {
+      console.log("Player reference exists, applying sync immediately")
+      applySyncAction()
+    } else {
+      console.warn("Player reference doesn't exist yet, will apply when ready")
     }
-
-    // Apply the sync action
-    applySyncAction()
   }
 
   // Function to apply the pending sync action
   const applySyncAction = () => {
-    if (!pendingSyncRef.current || !playerRef.current || !playerReady) return
+    if (!pendingSyncRef.current || !playerRef.current) return
 
     const { action, time, videoId, strict } = pendingSyncRef.current
 
@@ -102,10 +136,19 @@ export default function Container() {
         console.log("Loading new video:", videoId)
         setCurrentVideoId(videoId)
 
-        playerRef.current.loadVideoById({
-          videoId,
-          startSeconds: time || 0,
-        })
+        if (action === "play") {
+          // If we need to play, load the video at the specified time
+          playerRef.current.loadVideoById({
+            videoId,
+            startSeconds: time || 0,
+          })
+        } else {
+          // Otherwise, just cue it
+          playerRef.current.cueVideoById({
+            videoId,
+            startSeconds: time || 0,
+          })
+        }
 
         // Handle the action after video loads
         const onStateChange = (event: any) => {
@@ -119,7 +162,11 @@ export default function Container() {
               playerRef.current?.playVideo()
             }
 
-            setIsProgrammatic(false)
+            // Reset programmatic flag after a short delay
+            setTimeout(() => {
+              setIsProgrammatic(false)
+            }, 500)
+
             playerRef.current?.removeEventListener("onStateChange", onStateChange)
           }
         }
@@ -140,7 +187,10 @@ export default function Container() {
           playerRef.current.seekTo(time, true)
         }
 
-        setIsProgrammatic(false)
+        // Reset programmatic flag after a short delay
+        setTimeout(() => {
+          setIsProgrammatic(false)
+        }, 500)
       }
 
       // Clear the pending sync
@@ -169,14 +219,29 @@ export default function Container() {
     setPlayerReady(true)
     setLoading(false)
 
-    // Apply any pending sync action
+    // Apply any pending sync action after a short delay
+    // to ensure the player is fully initialized
     if (pendingSyncRef.current) {
-      console.log("Applying pending sync action")
+      console.log("Applying pending sync action after player is ready")
       syncTimeoutRef.current = setTimeout(() => {
-        applySyncAction()
-      }, 500) // Give a little time for the player to fully initialize
+        if (playerRef.current) {
+          applySyncAction()
+        }
+      }, 500)
     }
   }
+
+  // Effect to handle player readiness changes
+  useEffect(() => {
+    if (playerReady && pendingSyncRef.current) {
+      console.log("Player is now ready, applying pending sync")
+      syncTimeoutRef.current = setTimeout(() => {
+        if (playerRef.current) {
+          applySyncAction()
+        }
+      }, 500)
+    }
+  }, [playerReady])
 
   useEffect(() => {
     let socket: Socket
@@ -253,6 +318,11 @@ export default function Container() {
       return () => clearTimeout(timeout)
     }
   }, [isConnecting, loading])
+
+  // Debug logging for player readiness
+  useEffect(() => {
+    console.log("Player ready state changed:", playerReady)
+  }, [playerReady])
 
   return (
     <>

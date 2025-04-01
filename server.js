@@ -87,6 +87,7 @@ io.on("connection", (socket) => {
         action: "pause", // Always start paused for first user
         time: 0,
         videoId: room.videoId,
+        strict: true, // Force sync
       })
     }
 
@@ -169,7 +170,7 @@ io.on("connection", (socket) => {
       videoId: videoId || room.videoId,
     })
 
-    // Broadcast to other users in the room
+    // Broadcast to other users in the room (not back to sender)
     socket.broadcast.to(roomId).emit("sync_action", {
       action,
       time,
