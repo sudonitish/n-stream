@@ -100,7 +100,7 @@ const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
     // Extract video ID from URL
     const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^?&]+)/)
     const videoId = match && match[1]
-
+    console.log(videoId)
     // For now, just show a shortened version of the URL
     // In a real app, you might want to fetch the actual title from YouTube API
     return url.length > 40 ? url.substring(0, 40) + "..." : url

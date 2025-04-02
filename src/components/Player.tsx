@@ -1,13 +1,14 @@
 "use client"
 
 import type React from "react"
+import type { Socket } from "socket.io-client"
 
 import { useState, useRef, useEffect } from "react"
 import YouTube, { type YouTubePlayer, type YouTubeEvent, type YouTubeProps } from "react-youtube"
 import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight } from "lucide-react"
 
 interface PlayerProps {
-  socket?: any
+  socket?: Socket
   roomId?: string
   currentVideoID?: string
   isProgrammatic?: boolean
@@ -90,7 +91,7 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
           if (duration && duration > 0) {
             setDuration(duration)
           }
-        } catch (e) {
+        } catch{
           console.warn("Could not get duration yet")
         }
       }
@@ -117,7 +118,7 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
         if (duration && duration > 0) {
           setDuration(duration)
         }
-      } catch (e) {
+      } catch{
         console.warn("Could not get duration")
       }
 
