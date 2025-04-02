@@ -70,24 +70,24 @@ io.on("connection", (socket) => {
       let currentTime = room.time
       if (room.action === "play") {
         const elapsedSeconds = (Date.now() - room.lastUpdateTime) / 1000
-        currentTime = room.time + elapsedSeconds
+        currentTime = Math.min(room.time + elapsedSeconds, 3600) // Cap at 1 hour to prevent extreme values
+        console.log(`Calculated current time: ${currentTime} (elapsed: ${elapsedSeconds}s)`)
       }
 
       // Send the current state to the new user
-      socket.emit("sync_action", {
+      console.log(`Sending initial sync to new user: ${room.action} at ${currentTime}`)
+      socket.emit("initial_sync", {
         action: room.action,
         time: currentTime,
         videoId: room.videoId,
-        strict: true, // Force sync
       })
     } else {
       console.log("First user in room, initializing state")
       // First user gets the initial state
-      socket.emit("sync_action", {
+      socket.emit("initial_sync", {
         action: "pause", // Always start paused for first user
         time: 0,
         videoId: room.videoId,
-        strict: true, // Force sync
       })
     }
 
@@ -175,7 +175,6 @@ io.on("connection", (socket) => {
       action,
       time,
       videoId: room.videoId,
-      strict: true, // Force sync for broadcasts
     })
   })
 
