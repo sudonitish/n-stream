@@ -61,65 +61,42 @@ export default function Container() {
     videoId?: string
     isInitialSync?: boolean
   }) => {
-    // Check if this is a duplicate action we just received
-    const now = Date.now()
-    const lastAction = lastSyncActionRef.current
-
-    if (
-      !isInitialSync &&
-      lastAction &&
-      lastAction.action === action &&
-      Math.abs(lastAction.time - time) < 1 &&
-      lastAction.videoId === videoId &&
-      now - lastAction.timestamp < 500
-    ) {
-      console.log("Ignoring duplicate sync action")
-      return
-    }
-
-    // Store this action to prevent duplicates
-    if (!isInitialSync) {
-      lastSyncActionRef.current = {
-        action,
-        time,
-        videoId,
-        timestamp: now,
-      }
-    }
-
     console.log(
-      `Sync action received: ${action} at ${time} for video ${videoId || currentVideoID}${isInitialSync ? " (initial sync)" : ""}`,
+      `Received sync action: ${action} at ${time} for video ${videoId || currentVideoID}, isInitial: ${isInitialSync}`,
     )
 
-    // If this is the initial sync when joining a room, store it for when the player is ready
     if (isInitialSync) {
       initialSyncRef.current = { action, time, videoId }
 
-      // If the video ID is different, update it immediately
       if (videoId && videoId !== currentVideoID) {
         setCurrentVideoId(videoId)
       }
 
-      // If player is already ready, apply the sync
+      // If player is already ready, apply the sync action immediately
       if (playerReady && playerRef.current) {
-        console.log("Player already ready, applying initial sync immediately")
         applySyncAction(action, time, videoId)
       }
       return
     }
 
-    // Cancel any pending sync
+    // For regular sync actions, add to queue
+    lastSyncActionRef.current = {
+      action,
+      time,
+      videoId,
+      timestamp: Date.now(),
+    }
+
+    // If we have a sync timeout, clear it
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current)
     }
 
-    // If player reference exists, apply immediately
+    // Apply the sync action immediately if player is ready
     if (playerRef.current) {
-      console.log("Player reference exists, applying sync immediately")
       applySyncAction(action, time, videoId)
     } else {
-      console.warn("Player reference doesn't exist yet, will apply when ready")
-      // Store the action to apply when player is ready
+      // Otherwise, queue it for when the player is ready
       syncTimeoutRef.current = setTimeout(() => {
         if (playerRef.current) {
           applySyncAction(action, time, videoId)
@@ -134,78 +111,45 @@ export default function Container() {
 
     console.log(`Applying sync action: ${action} at ${time} for video ${videoId || currentVideoID}`)
 
-    // Set programmatic flag to prevent event loops
     setIsProgrammatic(true)
 
     try {
       // If video ID is different, load the new video
       if (videoId && currentVideoID !== videoId) {
-        console.log("Loading new video:", videoId)
         setCurrentVideoId(videoId)
 
+        // If action is play or seek_playing, load and play the video
         if (action === "play" || action === "seek_playing") {
-          // If we need to play, load the video at the specified time
-          console.log(`Loading and playing video at ${time}`)
-          playerRef.current.loadVideoById({
-            videoId,
-            startSeconds: time || 0,
-          })
+          console.log(`Loading and playing video ${videoId} at ${time}`)
+          playerRef.current.loadVideoById({ videoId, startSeconds: time || 0 })
         } else {
-          // Otherwise, just cue it
-          console.log(`Cueing video at ${time}`)
-          playerRef.current.cueVideoById({
-            videoId,
-            startSeconds: time || 0,
-          })
+          // Otherwise just cue it
+          console.log(`Cueing video ${videoId} at ${time}`)
+          playerRef.current.cueVideoById({ videoId, startSeconds: time || 0 })
         }
       } else {
-        // Same video, just sync state
-        if (action === "play") {
-          console.log(`Playing video at ${time}`)
-          playerRef.current.seekTo(time, true)
-          // Add a small delay to ensure the seek completes before playing
-          setTimeout(() => {
-            if (playerRef.current) {
-              playerRef.current.playVideo()
-            }
-          }, 100)
-        } else if (action === "pause") {
-          console.log(`Pausing video at ${time}`)
-          playerRef.current.seekTo(time, true)
-          playerRef.current.pauseVideo()
-        } else if (action === "seek_playing") {
+        // Handle actions for the current video
+        if (action === "play" || action === "seek_playing") {
           console.log(`Seeking to ${time} and playing`)
           playerRef.current.seekTo(time, true)
-          // Add a small delay to ensure the seek completes before playing
-          setTimeout(() => {
-            if (playerRef.current) {
-              playerRef.current.playVideo()
-            }
-          }, 100)
-        } else if (action === "seek_paused") {
+
+          // Only play if player is ready
+          if (playerReady) {
+            playerRef.current.playVideo()
+          }
+        } else if (action === "pause" || action === "seek_paused") {
           console.log(`Seeking to ${time} and pausing`)
           playerRef.current.seekTo(time, true)
           playerRef.current.pauseVideo()
-        } else if (action === "seek") {
-          console.log(`Seeking to ${time} (maintaining current play state)`)
-          const wasPlaying = playerRef.current.getPlayerState() === 1
-          playerRef.current.seekTo(time, true)
-
-          // Restore play state after seeking
-          setTimeout(() => {
-            if (playerRef.current) {
-              if (wasPlaying) {
-                playerRef.current.playVideo()
-              }
-            }
-          }, 100)
+        } else if (action === "end") {
+          console.log("Video ended, handling end action")
+          // You might want to implement auto-next here
+          playerRef.current.pauseVideo()
         }
       }
 
       // Reset programmatic flag after a delay
-      setTimeout(() => {
-        setIsProgrammatic(false)
-      }, 1000)
+      setTimeout(() => setIsProgrammatic(false), 1000)
     } catch (error) {
       console.error("Error in applySyncAction:", error)
       setIsProgrammatic(false)
@@ -378,4 +322,3 @@ const Error = ({ message }: { message: string }) => {
     </div>
   )
 }
-

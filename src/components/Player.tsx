@@ -13,9 +13,19 @@ interface PlayerProps {
   currentVideoID?: string
   isProgrammatic?: boolean
   onPlayerReady: (player: YouTubePlayer) => void
+  onPrevious?: () => void
+  onNext?: () => void
 }
 
-export default function Player({ socket, roomId, currentVideoID, isProgrammatic, onPlayerReady }: PlayerProps) {
+export default function Player({
+  socket,
+  roomId,
+  currentVideoID,
+  isProgrammatic,
+  onPlayerReady,
+  onPrevious,
+  onNext,
+}: PlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(50)
@@ -67,6 +77,22 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
     }
   }, [currentVideoID])
 
+  // Function to emit sync actions to the server
+  const emitSyncAction = (action: string, time?: number) => {
+    if (!socket || !roomId || syncInProgressRef.current || isProgrammatic) return
+
+    const currentTime = time !== undefined ? time : playerRef.current?.getCurrentTime() || 0
+    const videoId = playerRef.current?.getVideoData()?.video_id
+
+    console.log(`Emitting ${action} action to server at time ${currentTime}`)
+    socket.emit("sync_action", {
+      action,
+      time: currentTime,
+      roomId,
+      videoId,
+    })
+  }
+
   const handlePlayerReady = (event: YouTubeEvent) => {
     console.log("YouTube Player Ready")
     playerRef.current = event.target
@@ -91,7 +117,7 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
           if (duration && duration > 0) {
             setDuration(duration)
           }
-        } catch{
+        } catch {
           console.warn("Could not get duration yet")
         }
       }
@@ -107,83 +133,50 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
     const playerState = event.data
     const currentTime = playerRef.current.getCurrentTime() || 0
 
-    // Update local state based on player state
+    console.log("Player state changed:", playerState)
+
+    // Ignore buffering state
+    if (playerState === 3) {
+      console.log("Ignoring buffering state")
+      return
+    }
+
     if (playerState === 1) {
       // Playing
       setIsPlaying(true)
 
-      // Update duration when video starts playing
-      try {
-        const duration = playerRef.current.getDuration()
-        if (duration && duration > 0) {
-          setDuration(duration)
-        }
-      } catch{
-        console.warn("Could not get duration")
-      }
-
-      // If this is a user action and not a sync in progress, emit to server
-      if (isUserActionRef.current && !syncInProgressRef.current && !isProgrammatic && roomId && socket) {
-        console.log("Emitting play action to server")
-        socket.emit("sync_action", {
-          action: "play",
-          time: currentTime,
-          roomId,
-          videoId: playerRef.current.getVideoData()?.video_id,
-        })
+      // Emit play action if this is a user action
+      if (isUserActionRef.current) {
+        emitSyncAction("play")
         isUserActionRef.current = false
       }
 
-      // If we were seeking and the video was playing before, we don't need to do anything
       if (seekingRef.current) {
         seekingRef.current = false
+        // If we were seeking and now playing, emit a play action
+        // This fixes the issue where a seek followed by play wasn't being synced
+        emitSyncAction("play", currentTime)
       }
     } else if (playerState === 2) {
       // Paused
       setIsPlaying(false)
 
-      // If this is a user action and not a sync in progress or seeking, emit to server
-      if (
-        isUserActionRef.current &&
-        !syncInProgressRef.current &&
-        !seekingRef.current &&
-        !isProgrammatic &&
-        roomId &&
-        socket
-      ) {
-        console.log("Emitting pause action to server")
-        socket.emit("sync_action", {
-          action: "pause",
-          time: currentTime,
-          roomId,
-          videoId: playerRef.current.getVideoData()?.video_id,
-        })
+      // Emit pause action if this is a user action
+      if (isUserActionRef.current && !seekingRef.current) {
+        emitSyncAction("pause")
         isUserActionRef.current = false
       }
     } else if (playerState === 0) {
       // Ended
       setIsPlaying(false)
-
-      // If this is a user action and not a sync in progress, emit to server
-      if (!syncInProgressRef.current && !isProgrammatic && roomId && socket) {
-        console.log("Emitting end action to server")
-        socket.emit("sync_action", {
-          action: "end",
-          time: currentTime,
-          roomId,
-          videoId: playerRef.current.getVideoData()?.video_id,
-        })
-      }
+      emitSyncAction("end")
     }
-
-    // Reset user action flag if it's still set
-    isUserActionRef.current = false
   }
 
   const togglePlay = () => {
     if (!playerRef.current) return
 
-    // Mark this as a user action
+    // Mark this as a user action BEFORE calling the YouTube API
     isUserActionRef.current = true
 
     if (isPlaying) {
@@ -233,6 +226,9 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
     // Mark as seeking to prevent unwanted pause events
     seekingRef.current = true
 
+    // Mark as user action to ensure we emit events
+    isUserActionRef.current = true
+
     // Mark as sync in progress to prevent event loops
     syncInProgressRef.current = true
 
@@ -264,14 +260,14 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
   }
 
   const handlePrevious = () => {
-    if (socket && roomId) {
-      socket.emit("change_media", { action: "prev", roomId })
+    if (onPrevious) {
+      onPrevious()
     }
   }
 
   const handleNext = () => {
-    if (socket && roomId) {
-      socket.emit("change_media", { action: "next", roomId })
+    if (onNext) {
+      onNext()
     }
   }
 
@@ -370,4 +366,3 @@ export default function Player({ socket, roomId, currentVideoID, isProgrammatic,
     </div>
   )
 }
-

@@ -98,6 +98,48 @@ io.on("connection", (socket) => {
     })
   })
 
+  // Handle request for player state from new users
+  socket.on("request_player_state", ({ roomId }) => {
+    console.log(`User ${socket.id} requested player state for room ${roomId}`)
+
+    const roomUsers = io.sockets.adapter.rooms.get(roomId)
+    if (!roomUsers || roomUsers.size <= 1) {
+      console.log("No other users in room to request state from")
+      return
+    }
+
+    // Get all users in the room except the requester
+    const otherUsers = Array.from(roomUsers).filter((id) => id !== socket.id)
+
+    if (otherUsers.length > 0) {
+      // Select a random user to respond
+      const randomUserIndex = Math.floor(Math.random() * otherUsers.length)
+      const randomUserId = otherUsers[randomUserIndex]
+
+      console.log(`Requesting state from user ${randomUserId}`)
+      io.to(randomUserId).emit("request_player_state")
+    }
+  })
+
+  // Handle player state response from existing users
+  socket.on("player_state_response", ({ roomId, state }) => {
+    console.log(`Received player state from user ${socket.id} for room ${roomId}:`, state)
+
+    // Forward the state to all other users in the room who joined recently
+    socket.to(roomId).emit("player_state_response", { state })
+
+    // Update room state
+    if (roomStates[roomId] && state) {
+      roomStates[roomId].action = state.isPlaying ? "play" : "pause"
+      roomStates[roomId].time = state.currentTime
+      roomStates[roomId].lastUpdateTime = Date.now()
+
+      if (state.videoId) {
+        roomStates[roomId].videoId = state.videoId
+      }
+    }
+  })
+
   socket.on("leave_room", ({ roomId }) => {
     socket.leave(roomId)
     console.log(`User ${socket.id} left room: ${roomId}`)
@@ -141,7 +183,7 @@ io.on("connection", (socket) => {
       action: "pause", // Start paused when changing media
     })
 
-    io.to(roomId).emit("change_media", { roomId, videoId: room.videoId })
+    io.to(roomId).emit("change_media", { videoId: room.videoId })
     io.to(roomId).emit("sync_playlist", { playlist: room.playlist, playlistIndex: room.playlistIndex })
   })
 
@@ -170,8 +212,8 @@ io.on("connection", (socket) => {
       videoId: videoId || room.videoId,
     })
 
-    // Broadcast to other users in the room (not back to sender)
-    socket.broadcast.to(roomId).emit("sync_action", {
+    // Broadcast to ALL users in the room (including sender for consistency)
+    io.to(roomId).emit("sync_action", {
       action,
       time,
       videoId: room.videoId,
@@ -222,4 +264,3 @@ function getYouTubeVideoId(url) {
   }
   return null
 }
-

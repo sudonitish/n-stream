@@ -50,6 +50,19 @@ export default function PlayerScreen({
     alert("Room ID copied to clipboard!")
   }
 
+  // Add these functions to the PlayerScreen component
+  const handlePrevious = () => {
+    if (socket) {
+      socket.emit("change_media", { action: "prev", roomId })
+    }
+  }
+
+  const handleNext = () => {
+    if (socket) {
+      socket.emit("change_media", { action: "next", roomId })
+    }
+  }
+
   return (
     <div
       className={`relative z-10 container mx-auto px-4 flex flex-col items-center justify-center min-h-screen py-8 ${roomId && !loading ? "" : "hidden"}`}
@@ -68,6 +81,8 @@ export default function PlayerScreen({
           currentVideoID={currentVideoID}
           isProgrammatic={isProgrammatic}
           onPlayerReady={onPlayerReady}
+          onPrevious={handlePrevious}
+          onNext={handleNext}
         />
 
         <div className="w-full space-y-4 fade-in delay-400 mt-6">
@@ -126,4 +141,3 @@ const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
     </div>
   )
 }
-
