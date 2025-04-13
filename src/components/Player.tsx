@@ -15,6 +15,7 @@ interface PlayerProps {
   onPlayerReady: (player: YouTubePlayer) => void
   onPrevious?: () => void
   onNext?: () => void
+  lastSyncActionRef?: React.RefObject<{ action: string; time: number; videoId?: string; timestamp: number } | null>
 }
 
 export default function Player({
@@ -25,6 +26,7 @@ export default function Player({
   onPlayerReady,
   onPrevious,
   onNext,
+  lastSyncActionRef
 }: PlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -62,13 +64,13 @@ export default function Player({
 
   // When currentVideoID changes, update the player
   useEffect(() => {
-    if (playerRef.current && currentVideoID) {
-      console.log("Loading new video:", currentVideoID)
+    if (playerRef.current && lastSyncActionRef?.current) {
+      console.log("Loading new video:", lastSyncActionRef?.current.videoId)
       syncInProgressRef.current = true
 
       // Always cue the video (don't autoplay)
-      playerRef.current.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
-      setIsPlaying(false)
+      playerRef.current.cueVideoById({ videoId: lastSyncActionRef.current.videoId, startSeconds: lastSyncActionRef.current.time })
+      setIsPlaying(lastSyncActionRef.current.action === "play")
 
       // Reset sync flag after a delay
       setTimeout(() => {

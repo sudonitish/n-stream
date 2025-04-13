@@ -16,6 +16,7 @@ interface PlayerScreenProps {
   loading: boolean
   handleLeave: () => void
   onPlayerReady: (player: YouTubePlayer) => void
+  lastSyncActionRef: React.RefObject<{ action: string; time: number; videoId?: string; timestamp: number } | null>
 }
 
 export default function PlayerScreen({
@@ -27,6 +28,7 @@ export default function PlayerScreen({
   myPlayList,
   loading,
   onPlayerReady,
+  lastSyncActionRef,
 }: PlayerScreenProps) {
   const [newVideoUrl, setNewVideoUrl] = useState("")
   const youtubeRegex =
@@ -83,6 +85,7 @@ export default function PlayerScreen({
           onPlayerReady={onPlayerReady}
           onPrevious={handlePrevious}
           onNext={handleNext}
+          lastSyncActionRef={lastSyncActionRef}
         />
 
         <div className="w-full space-y-4 fade-in delay-400 mt-6">

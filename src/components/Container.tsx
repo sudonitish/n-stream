@@ -73,7 +73,7 @@ export default function Container() {
       }
 
       // If player is already ready, apply the sync action immediately
-      if (playerReady && playerRef.current) {
+      if (playerRef.current) {
         applySyncAction(action, time, videoId)
       }
       return
@@ -283,6 +283,7 @@ export default function Container() {
             currentVideoID={currentVideoID}
             isProgrammatic={isProgrammatic}
             onPlayerReady={setPlayerReference}
+            lastSyncActionRef={lastSyncActionRef}
           />
           <JoinScreen loading={loading || isConnecting} roomId={roomId} handleJoin={handleJoin} />
         </>
