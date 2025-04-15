@@ -41,10 +41,8 @@ export default function Player({
   const seekingRef = useRef<boolean>(false)
   const wasPlayingBeforeSeekRef = useRef<boolean>(false)
 
-  // Start/stop progress tracking based on play state
   useEffect(() => {
     if (isPlaying && playerRef.current) {
-      // Update progress every second
       progressIntervalRef.current = setInterval(() => {
         if (playerRef.current) {
           const time = playerRef.current.getCurrentTime() || 0
@@ -62,24 +60,6 @@ export default function Player({
     }
   }, [isPlaying])
 
-  // When currentVideoID changes, update the player
-  useEffect(() => {
-    if (playerRef.current && lastSyncActionRef?.current) {
-      console.log("Loading new video:", lastSyncActionRef?.current.videoId)
-      syncInProgressRef.current = true
-
-      // Always cue the video (don't autoplay)
-      playerRef.current.cueVideoById({ videoId: lastSyncActionRef.current.videoId, startSeconds: lastSyncActionRef.current.time })
-      setIsPlaying(lastSyncActionRef.current.action === "play")
-
-      // Reset sync flag after a delay
-      setTimeout(() => {
-        syncInProgressRef.current = false
-      }, 1000)
-    }
-  }, [currentVideoID])
-
-  // Function to emit sync actions to the server
   const emitSyncAction = (action: string, time?: number) => {
     if (!socket || !roomId || syncInProgressRef.current || isProgrammatic) return
 
@@ -98,33 +78,27 @@ export default function Player({
   const handlePlayerReady = (event: YouTubeEvent) => {
     console.log("YouTube Player Ready")
     playerRef.current = event.target
-
-    // Set initial volume
     playerRef.current.setVolume(volume)
 
-    // Mark player as ready
-    onPlayerReady(event.target)
-
-    // If we already have a video ID, load it
-    if (currentVideoID) {
-      console.log("Loading initial video:", currentVideoID)
-      event.target.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
-    }
-
-    // Get video duration after player is ready
     setTimeout(() => {
       if (playerRef.current) {
+        if(lastSyncActionRef?.current?.action === "play"){
+          lastSyncActionRef.current.time +=1000;
+        }
+        if (currentVideoID) {
+          console.log("Loading initial video:", currentVideoID)
+          onPlayerReady(event.target)
+        }
         try {
           const duration = playerRef.current.getDuration()
           if (duration && duration > 0) {
             setDuration(duration)
           }
         } catch {
-          console.warn("Could not get duration yet")
+          setDuration(0)
         }
       }
 
-      // Mark initial load as complete
       isInitialLoadRef.current = false
     }, 1000)
   }
@@ -137,17 +111,13 @@ export default function Player({
 
     console.log("Player state changed:", playerState)
 
-    // Ignore buffering state
     if (playerState === 3) {
-      console.log("Ignoring buffering state")
       return
     }
 
     if (playerState === 1) {
-      // Playing
       setIsPlaying(true)
 
-      // Emit play action if this is a user action
       if (isUserActionRef.current) {
         emitSyncAction("play")
         isUserActionRef.current = false
@@ -155,21 +125,16 @@ export default function Player({
 
       if (seekingRef.current) {
         seekingRef.current = false
-        // If we were seeking and now playing, emit a play action
-        // This fixes the issue where a seek followed by play wasn't being synced
         emitSyncAction("play", currentTime)
       }
     } else if (playerState === 2) {
-      // Paused
       setIsPlaying(false)
 
-      // Emit pause action if this is a user action
       if (isUserActionRef.current && !seekingRef.current) {
         emitSyncAction("pause")
         isUserActionRef.current = false
       }
     } else if (playerState === 0) {
-      // Ended
       setIsPlaying(false)
       emitSyncAction("end")
     }
@@ -178,7 +143,6 @@ export default function Player({
   const togglePlay = () => {
     if (!playerRef.current) return
 
-    // Mark this as a user action BEFORE calling the YouTube API
     isUserActionRef.current = true
 
     if (isPlaying) {
@@ -207,7 +171,6 @@ export default function Player({
     setVolume(newVolume)
     playerRef.current.setVolume(newVolume)
 
-    // If volume is 0, mute the player, otherwise ensure it's unmuted
     if (newVolume === 0 && !isMuted) {
       playerRef.current.mute()
       setIsMuted(true)
@@ -222,25 +185,14 @@ export default function Player({
 
     const seekTime = Number.parseFloat(e.target.value)
 
-    // Remember if the video was playing before seeking
     wasPlayingBeforeSeekRef.current = isPlaying
-
-    // Mark as seeking to prevent unwanted pause events
     seekingRef.current = true
-
-    // Mark as user action to ensure we emit events
     isUserActionRef.current = true
-
-    // Mark as sync in progress to prevent event loops
     syncInProgressRef.current = true
-
-    // Seek to the new time
     playerRef.current.seekTo(seekTime, true)
     setCurrentTime(seekTime)
 
-    // Emit seek event to sync with other users
     if (roomId && socket) {
-      console.log(`Emitting seek to ${seekTime} to server (playing: ${wasPlayingBeforeSeekRef.current})`)
       socket.emit("sync_action", {
         action: wasPlayingBeforeSeekRef.current ? "seek_playing" : "seek_paused",
         time: seekTime,
@@ -249,7 +201,6 @@ export default function Player({
       })
     }
 
-    // Reset sync flag after a delay
     setTimeout(() => {
       syncInProgressRef.current = false
       seekingRef.current = false
@@ -284,17 +235,16 @@ export default function Player({
     width: "100%",
     playerVars: {
       rel: 0,
-      autoplay: 0, // Start paused
-      controls: 0, // Hide YouTube controls
+      autoplay: 0,
+      controls: 0,
       modestbranding: 1,
-      disablekb: 0, // Enable keyboard controls
+      disablekb: 0,
       enablejsapi: 1,
       origin: typeof window !== "undefined" ? window.location.origin : "",
     },
   }
 
-  // Use a default video ID if none is provided
-  const videoId = currentVideoID || "2Vv-BfVoq4g" // Default to Ed Sheeran - Shape of You
+  const videoId = currentVideoID;
 
   return (
     <div className="w-full">

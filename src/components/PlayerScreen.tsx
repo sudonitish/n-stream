@@ -52,7 +52,6 @@ export default function PlayerScreen({
     alert("Room ID copied to clipboard!")
   }
 
-  // Add these functions to the PlayerScreen component
   const handlePrevious = () => {
     if (socket) {
       socket.emit("change_media", { action: "prev", roomId })
@@ -114,16 +113,6 @@ export default function PlayerScreen({
 }
 
 const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
-  const getVideoTitle = (url: string) => {
-    // Extract video ID from URL
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^?&]+)/)
-    const videoId = match && match[1]
-    console.log(videoId)
-    // For now, just show a shortened version of the URL
-    // In a real app, you might want to fetch the actual title from YouTube API
-    return url.length > 40 ? url.substring(0, 40) + "..." : url
-  }
-
   return (
     <div className="mt-8 w-full max-w-3xl">
       {myPlayList.length > 0 && (
@@ -135,7 +124,7 @@ const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
                 <div className="w-8 h-8 flex items-center justify-center bg-purple-800/50 rounded-full mr-3">
                   {index + 1}
                 </div>
-                <p className="flex-1 truncate">{getVideoTitle(videoUrl)}</p>
+                <p className="flex-1 truncate">{videoUrl.length > 40 ? videoUrl.substring(0, 40) + "..." : videoUrl}</p>
               </div>
             ))}
           </div>

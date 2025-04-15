@@ -19,8 +19,7 @@ export default function Container() {
   const [loading, setLoading] = useState<boolean>(true)
   const [playerReady, setPlayerReady] = useState(false)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const lastSyncActionRef = useRef<{ action: string; time: number; videoId?: string; timestamp: number } | null>(null)
-  const initialSyncRef = useRef<{ action: string; time: number; videoId?: string } | null>(null)
+  const initialSyncRef = useRef<{ action: string; time: number; videoId?: string,timestamp: number } | null>(null)
 
   const handleJoin = (roomId: string) => {
     if (roomId && webSocket) {
@@ -48,6 +47,7 @@ export default function Container() {
   const changeMedia = ({ videoId }: { videoId: string }) => {
     console.log("Changing media to:", videoId)
     setCurrentVideoId(videoId)
+    initialSyncRef.current = { action: "pause", time: 0, videoId, timestamp: Date.now() }
   }
 
   const syncAction = ({
@@ -66,7 +66,7 @@ export default function Container() {
     )
 
     if (isInitialSync) {
-      initialSyncRef.current = { action, time, videoId }
+      initialSyncRef.current = { action, time, videoId , timestamp: Date.now()}
 
       if (videoId && videoId !== currentVideoID) {
         setCurrentVideoId(videoId)
@@ -80,7 +80,7 @@ export default function Container() {
     }
 
     // For regular sync actions, add to queue
-    lastSyncActionRef.current = {
+    initialSyncRef.current = {
       action,
       time,
       videoId,
@@ -114,26 +114,19 @@ export default function Container() {
     setIsProgrammatic(true)
 
     try {
-      // If video ID is different, load the new video
       if (videoId && currentVideoID !== videoId) {
         setCurrentVideoId(videoId)
 
-        // If action is play or seek_playing, load and play the video
         if (action === "play" || action === "seek_playing") {
           console.log(`Loading and playing video ${videoId} at ${time}`)
           playerRef.current.loadVideoById({ videoId, startSeconds: time || 0 })
         } else {
-          // Otherwise just cue it
-          console.log(`Cueing video ${videoId} at ${time}`)
           playerRef.current.cueVideoById({ videoId, startSeconds: time || 0 })
         }
       } else {
-        // Handle actions for the current video
         if (action === "play" || action === "seek_playing") {
           console.log(`Seeking to ${time} and playing`)
           playerRef.current.seekTo(time, true)
-
-          // Only play if player is ready
           if (playerReady) {
             playerRef.current.playVideo()
           }
@@ -143,12 +136,14 @@ export default function Container() {
           playerRef.current.pauseVideo()
         } else if (action === "end") {
           console.log("Video ended, handling end action")
-          // You might want to implement auto-next here
           playerRef.current.pauseVideo()
         }
+
+        // if(playerRef.current.getCurrentTime()){
+        //   playerRef.current.getCurrentTime()
+        // };
       }
 
-      // Reset programmatic flag after a delay
       setTimeout(() => setIsProgrammatic(false), 1000)
     } catch (error) {
       console.error("Error in applySyncAction:", error)
@@ -167,23 +162,15 @@ export default function Container() {
     setMyPlayList(playlist)
   }
 
-  // Function to set the player reference from the child component
   const setPlayerReference = (player: YouTubePlayer) => {
-    console.log("Player reference set")
     playerRef.current = player
     setPlayerReady(true)
     setLoading(false)
 
-    // Apply initial sync if it exists
     if (initialSyncRef.current) {
       console.log("Applying initial sync after player is ready:", initialSyncRef.current)
       const { action, time, videoId } = initialSyncRef.current
-
-      // Set a short timeout to ensure the player is fully ready
-      setTimeout(() => {
-        applySyncAction(action, time, videoId)
-        initialSyncRef.current = null
-      }, 500)
+      applySyncAction(action, time, videoId)
     }
   }
 
@@ -283,7 +270,7 @@ export default function Container() {
             currentVideoID={currentVideoID}
             isProgrammatic={isProgrammatic}
             onPlayerReady={setPlayerReference}
-            lastSyncActionRef={lastSyncActionRef}
+            lastSyncActionRef={initialSyncRef}
           />
           <JoinScreen loading={loading || isConnecting} roomId={roomId} handleJoin={handleJoin} />
         </>

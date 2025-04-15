@@ -176,11 +176,10 @@ io.on("connection", (socket) => {
 
     room.videoId = getYouTubeVideoId(room.playlist[room.playlistIndex])
 
-    // Update room state
     Object.assign(room, {
       time: 0,
       lastUpdateTime: Date.now(),
-      action: "pause", // Start paused when changing media
+      action: "pause",
     })
 
     io.to(roomId).emit("change_media", { videoId: room.videoId })
@@ -188,10 +187,8 @@ io.on("connection", (socket) => {
   })
 
   socket.on("sync_action", ({ action, time, roomId, videoId }) => {
-    console.log(`Sync action from ${socket.id} in room ${roomId}: ${action} at ${time}`)
 
     if (!roomStates[roomId]) {
-      console.log(`Room ${roomId} not found, creating it`)
       roomStates[roomId] = {
         videoId: videoId || getYouTubeVideoId(playlist[0]),
         time: 0,
@@ -204,7 +201,6 @@ io.on("connection", (socket) => {
 
     const room = roomStates[roomId]
 
-    // Update room state
     Object.assign(room, {
       action,
       time,
@@ -212,10 +208,29 @@ io.on("connection", (socket) => {
       videoId: videoId || room.videoId,
     })
 
-    // Broadcast to ALL users in the room (including sender for consistency)
     io.to(roomId).emit("sync_action", {
       action,
       time,
+      videoId: room.videoId,
+    })
+  })
+
+  socket.on("get_new_sync", ({ roomId }) => {
+
+
+    const room = roomStates[roomId] || {
+      videoId: getYouTubeVideoId(playlist[0]),
+      time: 0,
+      action: "pause",
+      playlist: [...playlist],
+      playlistIndex: 0,
+      lastUpdateTime: Date.now(),
+    }
+
+
+    socket.emit("sync_action", {
+      action: room.action,
+      time: room.time,
       videoId: room.videoId,
     })
   })
