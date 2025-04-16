@@ -7,6 +7,9 @@ import PlayerScreen from "./PlayerScreen"
 import Background from "./Background"
 import type { YouTubePlayer } from "react-youtube"
 
+// Create a single socket instance outside the component to prevent reconnections
+let socketInstance: Socket | null = null
+
 export default function Container() {
   const [webSocket, setWebSocket] = useState<Socket | null>(null)
   const [roomId, setRoomId] = useState("")
@@ -29,6 +32,7 @@ export default function Container() {
   const syncInProgressRef = useRef(false)
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null)
   const initialSyncAppliedRef = useRef(false)
+  const socketInitializedRef = useRef(false)
 
   // Debug logging helper
   const logAction = useCallback((message: string, data?: any) => {
@@ -42,6 +46,10 @@ export default function Container() {
         logAction(`Joining room: ${roomId}`)
         webSocket.emit("join_room", { roomId: roomId.trim() })
         setRoomId(roomId)
+
+        // Reset sync flags when joining a new room
+        initialSyncAppliedRef.current = false
+        lastSyncActionRef.current = null
       }
     },
     [webSocket, logAction],
@@ -105,6 +113,7 @@ export default function Container() {
 
         // If video ID is different, load the new video
         if (videoId && currentVideoID !== videoId) {
+          logAction(`Video ID changed, setting to: ${videoId}`)
           setCurrentVideoId(videoId)
 
           // If action is play or seek_playing, load and play the video
@@ -133,6 +142,15 @@ export default function Container() {
             // Otherwise just cue it
             logAction(`Cueing video ${videoId} at ${adjustedTime}`)
             playerRef.current.cueVideoById({ videoId, startSeconds: adjustedTime })
+
+            // For pause actions, ensure we're actually paused
+            if (action === "pause" || action === "seek_paused") {
+              setTimeout(() => {
+                if (playerRef.current) {
+                  playerRef.current.pauseVideo()
+                }
+              }, 300)
+            }
           }
         } else {
           // Handle actions for the current video
@@ -201,13 +219,24 @@ export default function Container() {
         timestamp,
       }
 
+      // If this is an initial sync, set the video ID first
+      if (isInitialSync && videoId && videoId !== currentVideoID) {
+        logAction(`Setting initial video ID to: ${videoId}`)
+        setCurrentVideoId(videoId)
+      }
+
       // If player is ready, apply immediately
       if (playerReadyRef.current && playerRef.current) {
         logAction("Player ready, applying sync action immediately")
-        applySyncAction(action, time, videoId, timestamp)
 
+        // For initial sync, give a short delay to ensure video ID is set
         if (isInitialSync) {
-          initialSyncAppliedRef.current = true
+          setTimeout(() => {
+            applySyncAction(action, time, videoId, timestamp)
+            initialSyncAppliedRef.current = true
+          }, 500)
+        } else {
+          applySyncAction(action, time, videoId, timestamp)
         }
       } else {
         // Otherwise, schedule a retry
@@ -218,18 +247,31 @@ export default function Container() {
           clearTimeout(retryTimerRef.current)
         }
 
-        // Set up a new retry
-        retryTimerRef.current = setTimeout(() => {
+        // Set up a new retry with exponential backoff
+        const retrySync = (attempt = 1) => {
           if (playerReadyRef.current && playerRef.current) {
-            logAction("Retrying sync action after delay")
+            logAction(`Applying sync action on retry attempt ${attempt}`)
             applySyncAction(action, time, videoId, timestamp)
 
             if (isInitialSync) {
               initialSyncAppliedRef.current = true
             }
+          } else if (attempt < 5) {
+            // Retry with exponential backoff
+            const delay = Math.min(1000 * Math.pow(1.5, attempt), 10000)
+            logAction(`Player still not ready, retry attempt ${attempt + 1} in ${delay}ms`)
+
+            retryTimerRef.current = setTimeout(() => {
+              retrySync(attempt + 1)
+            }, delay)
           } else {
-            logAction("Player still not ready after delay, will retry on player ready")
+            logAction("Max retry attempts reached, giving up")
           }
+        }
+
+        // Start retry process
+        retryTimerRef.current = setTimeout(() => {
+          retrySync()
         }, 1000)
       }
     },
@@ -263,9 +305,13 @@ export default function Container() {
           applySyncAction(action, time, videoId, timestamp)
           initialSyncAppliedRef.current = true
         }, 500)
+      } else if (roomId && webSocket) {
+        // If we don't have a pending action but we're in a room, request the current state
+        logAction("No pending sync action, requesting current state from server")
+        webSocket.emit("get_current_state", { roomId })
       }
     },
-    [applySyncAction, logAction],
+    [applySyncAction, roomId, webSocket, logAction],
   )
 
   // Handle next/previous video
@@ -285,7 +331,9 @@ export default function Container() {
 
   // Initialize socket connection
   useEffect(() => {
-    let socket: Socket
+    // Only initialize socket once
+    if (socketInitializedRef.current) return
+    socketInitializedRef.current = true
 
     try {
       const socketUrl =
@@ -293,11 +341,16 @@ export default function Container() {
 
       logAction(`Connecting to socket URL: ${socketUrl}`)
 
-      socket = io(socketUrl, {
-        transports: ["websocket", "polling"],
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      })
+      // Reuse existing socket if available
+      if (!socketInstance) {
+        socketInstance = io(socketUrl, {
+          transports: ["websocket", "polling"],
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+        })
+      }
+
+      const socket = socketInstance
 
       socket.io.on("reconnect_attempt", () => {
         logAction("Attempting to reconnect...")
@@ -320,11 +373,20 @@ export default function Container() {
       })
 
       // Set up event listeners
-      socket.on("change_media", changeMedia)
-      socket.on("sync_action", (data) => syncAction(data))
-      socket.on("initial_sync", (data) => syncAction({ ...data, isInitialSync: true }))
-      socket.on("sync_playlist", syncPlaylist)
-      socket.on("disconnect", () => logAction("Disconnected from server"))
+      const onChangeMedia = (data: any) => changeMedia(data)
+      const onSyncAction = (data: any) => syncAction(data)
+      const onInitialSync = (data: any) => syncAction({ ...data, isInitialSync: true })
+      const onSyncPlaylist = (data: any) => syncPlaylist(data)
+      const onDisconnect = () => logAction("Disconnected from server")
+
+      socket.on("change_media", onChangeMedia)
+      socket.on("sync_action", onSyncAction)
+      socket.on("initial_sync", onInitialSync)
+      socket.on("sync_playlist", onSyncPlaylist)
+      socket.on("disconnect", onDisconnect)
+
+      // Set the socket state
+      setWebSocket(socket)
 
       return () => {
         // Clean up timers
@@ -332,12 +394,12 @@ export default function Container() {
           clearTimeout(retryTimerRef.current)
         }
 
-        // Clean up socket listeners
-        socket.off("change_media", changeMedia)
-        socket.off("sync_action")
-        socket.off("initial_sync")
-        socket.off("sync_playlist", syncPlaylist)
-        socket.disconnect()
+        // Clean up socket listeners but don't disconnect
+        socket.off("change_media", onChangeMedia)
+        socket.off("sync_action", onSyncAction)
+        socket.off("initial_sync", onInitialSync)
+        socket.off("sync_playlist", onSyncPlaylist)
+        socket.off("disconnect", onDisconnect)
       }
     } catch (err) {
       logAction(`Socket initialization error: ${err}`)

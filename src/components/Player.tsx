@@ -41,6 +41,7 @@ export default function Player({
   const wasPlayingBeforeSeekRef = useRef<boolean>(false)
   const playerReadyRef = useRef<boolean>(false)
   const initialLoadRef = useRef<boolean>(true)
+  const videoIdRef = useRef<string | null>(null)
 
   // Debug logging helper
   const logAction = useCallback((message: string, data?: any) => {
@@ -75,20 +76,42 @@ export default function Player({
 
   // When currentVideoID changes, update the player
   useEffect(() => {
-    if (playerRef.current && currentVideoID && playerReadyRef.current) {
+    if (currentVideoID !== videoIdRef.current) {
       logAction(`Video ID changed to: ${currentVideoID}`)
-      syncInProgressRef.current = true
+      videoIdRef.current = currentVideoID
 
-      // Always cue the video (don't autoplay)
-      playerRef.current.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
-      setIsPlaying(false)
+      if (playerRef.current && playerReadyRef.current) {
+        syncInProgressRef.current = true
 
-      // Reset sync flag after a delay
-      setTimeout(() => {
-        syncInProgressRef.current = false
-      }, 1000)
+        // Check if we have a lastSyncAction with this videoId
+        if (lastSyncActionRef?.current?.videoId === currentVideoID) {
+          const { action, time } = lastSyncActionRef.current
+          logAction(`Using last sync action for new video: ${action} at ${time}`)
+
+          if (action === "play" || action === "seek_playing") {
+            playerRef.current.loadVideoById({ videoId: currentVideoID, startSeconds: time || 0 })
+
+            // Ensure it's playing
+            setTimeout(() => {
+              if (playerRef.current) {
+                playerRef.current.playVideo()
+              }
+            }, 300)
+          } else {
+            playerRef.current.cueVideoById({ videoId: currentVideoID, startSeconds: time || 0 })
+          }
+        } else {
+          // Default to cue (don't autoplay)
+          playerRef.current.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
+        }
+
+        // Reset sync flag after a delay
+        setTimeout(() => {
+          syncInProgressRef.current = false
+        }, 1000)
+      }
     }
-  }, [currentVideoID, logAction])
+  }, [currentVideoID, lastSyncActionRef, logAction])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -142,6 +165,7 @@ export default function Player({
       // If we already have a video ID, load it
       if (currentVideoID) {
         logAction(`Loading initial video: ${currentVideoID}`)
+        videoIdRef.current = currentVideoID
 
         // If we have a lastSyncAction with a time, use it
         if (lastSyncActionRef?.current) {
@@ -150,6 +174,11 @@ export default function Player({
 
           if (action === "play" || action === "seek_playing") {
             event.target.loadVideoById({ videoId: currentVideoID, startSeconds: time || 0 })
+
+            // Ensure it's playing
+            setTimeout(() => {
+              event.target.playVideo()
+            }, 300)
           } else {
             event.target.cueVideoById({ videoId: currentVideoID, startSeconds: time || 0 })
           }
@@ -231,9 +260,22 @@ export default function Player({
           logAction("Video ended, emitting end action")
           emitSyncAction("end")
         }
+      } else if (playerState === 5) {
+        // Video cued
+        setIsPlaying(false)
+
+        // If we have a lastSyncAction that says we should be playing, play it
+        if (lastSyncActionRef?.current?.action === "play" || lastSyncActionRef?.current?.action === "seek_playing") {
+          logAction("Video cued, but last sync action was play, so playing")
+          setTimeout(() => {
+            if (playerRef.current) {
+              playerRef.current.playVideo()
+            }
+          }, 300)
+        }
       }
     },
-    [emitSyncAction, isProgrammatic, logAction],
+    [emitSyncAction, isProgrammatic, lastSyncActionRef, logAction],
   )
 
   const togglePlay = useCallback(() => {

@@ -179,7 +179,7 @@ io.on("connection", (socket) => {
     Object.assign(room, {
       action,
       time,
-      lastUpdateTime: Date.now(),
+      lastUpdateTime: timestamp,
       videoId: videoId || room.videoId,
     })
 
