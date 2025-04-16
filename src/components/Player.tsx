@@ -3,7 +3,7 @@
 import type React from "react"
 import type { Socket } from "socket.io-client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import YouTube, { type YouTubePlayer, type YouTubeEvent, type YouTubeProps } from "react-youtube"
 import { Play, Pause, Volume2, VolumeX, ChevronLeft, ChevronRight } from "lucide-react"
 
@@ -26,7 +26,7 @@ export default function Player({
   onPlayerReady,
   onPrevious,
   onNext,
-  lastSyncActionRef
+  lastSyncActionRef,
 }: PlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -36,17 +36,30 @@ export default function Player({
   const playerRef = useRef<YouTubePlayer | null>(null)
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isUserActionRef = useRef<boolean>(false)
-  const isInitialLoadRef = useRef<boolean>(true)
   const syncInProgressRef = useRef<boolean>(false)
   const seekingRef = useRef<boolean>(false)
   const wasPlayingBeforeSeekRef = useRef<boolean>(false)
+  const playerReadyRef = useRef<boolean>(false)
+  const initialLoadRef = useRef<boolean>(true)
 
+  // Debug logging helper
+  const logAction = useCallback((message: string, data?: any) => {
+    const timestamp = new Date().toISOString().split("T")[1].split(".")[0]
+    console.log(`[${timestamp}] PLAYER: ${message}`, data || "")
+  }, [])
+
+  // Start/stop progress tracking based on play state
   useEffect(() => {
     if (isPlaying && playerRef.current) {
+      // Update progress every second
       progressIntervalRef.current = setInterval(() => {
         if (playerRef.current) {
-          const time = playerRef.current.getCurrentTime() || 0
-          setCurrentTime(time)
+          try {
+            const time = playerRef.current.getCurrentTime() || 0
+            setCurrentTime(time)
+          } catch (err) {
+            logAction("Error getting current time", err)
+          }
         }
       }, 1000)
     } else if (progressIntervalRef.current) {
@@ -58,101 +71,186 @@ export default function Player({
         clearInterval(progressIntervalRef.current)
       }
     }
-  }, [isPlaying])
+  }, [isPlaying, logAction])
 
-  const emitSyncAction = (action: string, time?: number) => {
-    if (!socket || !roomId || syncInProgressRef.current || isProgrammatic) return
+  // When currentVideoID changes, update the player
+  useEffect(() => {
+    if (playerRef.current && currentVideoID && playerReadyRef.current) {
+      logAction(`Video ID changed to: ${currentVideoID}`)
+      syncInProgressRef.current = true
 
-    const currentTime = time !== undefined ? time : playerRef.current?.getCurrentTime() || 0
-    const videoId = playerRef.current?.getVideoData()?.video_id
+      // Always cue the video (don't autoplay)
+      playerRef.current.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
+      setIsPlaying(false)
 
-    console.log(`Emitting ${action} action to server at time ${currentTime}`)
-    socket.emit("sync_action", {
-      action,
-      time: currentTime,
-      roomId,
-      videoId,
-    })
-  }
+      // Reset sync flag after a delay
+      setTimeout(() => {
+        syncInProgressRef.current = false
+      }, 1000)
+    }
+  }, [currentVideoID, logAction])
 
-  const handlePlayerReady = (event: YouTubeEvent) => {
-    console.log("YouTube Player Ready")
-    playerRef.current = event.target
-    playerRef.current.setVolume(volume)
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current)
+      }
+    }
+  }, [])
 
-    setTimeout(() => {
-      if (playerRef.current) {
-        if(lastSyncActionRef?.current?.action === "play"){
-          lastSyncActionRef.current.time +=1000;
-        }
-        if (currentVideoID) {
-          console.log("Loading initial video:", currentVideoID)
-          onPlayerReady(event.target)
-        }
-        try {
-          const duration = playerRef.current.getDuration()
-          if (duration && duration > 0) {
-            setDuration(duration)
+  // Function to emit sync actions to the server
+  const emitSyncAction = useCallback(
+    (action: string, time?: number) => {
+      if (!socket || !roomId || syncInProgressRef.current || isProgrammatic) {
+        logAction(`Not emitting ${action} - conditions not met`, {
+          noSocket: !socket,
+          noRoomId: !roomId,
+          syncInProgress: syncInProgressRef.current,
+          isProgrammatic,
+        })
+        return
+      }
+
+      const currentTime = time !== undefined ? time : playerRef.current?.getCurrentTime() || 0
+      const videoId = playerRef.current?.getVideoData()?.video_id
+
+      logAction(`Emitting ${action} action to server at time ${currentTime}`)
+      socket.emit("sync_action", {
+        action,
+        time: currentTime,
+        roomId,
+        videoId,
+        timestamp: Date.now(),
+      })
+    },
+    [socket, roomId, isProgrammatic, logAction],
+  )
+
+  const handlePlayerReady = useCallback(
+    (event: YouTubeEvent) => {
+      logAction("YouTube Player Ready")
+      playerRef.current = event.target
+      playerReadyRef.current = true
+
+      // Set initial volume
+      playerRef.current.setVolume(volume)
+
+      // Mark player as ready
+      onPlayerReady(event.target)
+
+      // If we already have a video ID, load it
+      if (currentVideoID) {
+        logAction(`Loading initial video: ${currentVideoID}`)
+
+        // If we have a lastSyncAction with a time, use it
+        if (lastSyncActionRef?.current) {
+          const { time, action } = lastSyncActionRef.current
+          logAction(`Using last sync action time: ${time}, action: ${action}`)
+
+          if (action === "play" || action === "seek_playing") {
+            event.target.loadVideoById({ videoId: currentVideoID, startSeconds: time || 0 })
+          } else {
+            event.target.cueVideoById({ videoId: currentVideoID, startSeconds: time || 0 })
           }
-        } catch {
-          setDuration(0)
+        } else {
+          event.target.cueVideoById({ videoId: currentVideoID, startSeconds: 0 })
         }
       }
 
-      isInitialLoadRef.current = false
-    }, 1000)
-  }
+      // Get video duration after player is ready
+      setTimeout(() => {
+        if (playerRef.current) {
+          try {
+            const duration = playerRef.current.getDuration()
+            if (duration && duration > 0) {
+              setDuration(duration)
+            }
+          } catch (err) {
+            logAction("Could not get duration yet", err)
+          }
+        }
 
-  const onPlayerStateChange = (event: YouTubeEvent) => {
+        // Mark initial load as complete
+        initialLoadRef.current = false
+      }, 1000)
+    },
+    [currentVideoID, volume, onPlayerReady, lastSyncActionRef, logAction],
+  )
+
+  const onPlayerStateChange = useCallback(
+    (event: YouTubeEvent) => {
+      if (!playerRef.current) return
+
+      const playerState = event.data
+      const currentTime = playerRef.current.getCurrentTime() || 0
+
+      logAction(`Player state changed: ${playerState}`)
+
+      // Ignore buffering state
+      if (playerState === 3) {
+        logAction("Ignoring buffering state")
+        return
+      }
+
+      if (playerState === 1) {
+        // Playing
+        setIsPlaying(true)
+
+        // Emit play action if this is a user action
+        if (isUserActionRef.current) {
+          logAction(`User initiated play at ${currentTime}`)
+          emitSyncAction("play", currentTime)
+          isUserActionRef.current = false
+        }
+
+        // If we were seeking and now playing, emit a play action
+        if (seekingRef.current) {
+          seekingRef.current = false
+
+          // Only emit if it was a user-initiated seek
+          if (wasPlayingBeforeSeekRef.current) {
+            logAction(`Emitting play after seek at ${currentTime}`)
+            emitSyncAction("play", currentTime)
+          }
+        }
+      } else if (playerState === 2) {
+        // Paused
+        setIsPlaying(false)
+
+        // Emit pause action if this is a user action
+        if (isUserActionRef.current && !seekingRef.current) {
+          logAction(`User initiated pause at ${currentTime}`)
+          emitSyncAction("pause", currentTime)
+          isUserActionRef.current = false
+        }
+      } else if (playerState === 0) {
+        // Ended
+        setIsPlaying(false)
+        if (!isProgrammatic) {
+          logAction("Video ended, emitting end action")
+          emitSyncAction("end")
+        }
+      }
+    },
+    [emitSyncAction, isProgrammatic, logAction],
+  )
+
+  const togglePlay = useCallback(() => {
     if (!playerRef.current) return
 
-    const playerState = event.data
-    const currentTime = playerRef.current.getCurrentTime() || 0
-
-    console.log("Player state changed:", playerState)
-
-    if (playerState === 3) {
-      return
-    }
-
-    if (playerState === 1) {
-      setIsPlaying(true)
-
-      if (isUserActionRef.current) {
-        emitSyncAction("play")
-        isUserActionRef.current = false
-      }
-
-      if (seekingRef.current) {
-        seekingRef.current = false
-        emitSyncAction("play", currentTime)
-      }
-    } else if (playerState === 2) {
-      setIsPlaying(false)
-
-      if (isUserActionRef.current && !seekingRef.current) {
-        emitSyncAction("pause")
-        isUserActionRef.current = false
-      }
-    } else if (playerState === 0) {
-      setIsPlaying(false)
-      emitSyncAction("end")
-    }
-  }
-
-  const togglePlay = () => {
-    if (!playerRef.current) return
-
+    // Mark this as a user action BEFORE calling the YouTube API
     isUserActionRef.current = true
+    logAction(`User clicked ${isPlaying ? "pause" : "play"} button`)
 
     if (isPlaying) {
       playerRef.current.pauseVideo()
     } else {
       playerRef.current.playVideo()
     }
-  }
+  }, [isPlaying, logAction])
 
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     if (!playerRef.current) return
 
     if (isMuted) {
@@ -162,89 +260,112 @@ export default function Player({
       playerRef.current.mute()
     }
     setIsMuted(!isMuted)
-  }
+  }, [isMuted, volume])
 
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!playerRef.current) return
+  const handleVolumeChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!playerRef.current) return
 
-    const newVolume = Number.parseInt(e.target.value, 10)
-    setVolume(newVolume)
-    playerRef.current.setVolume(newVolume)
+      const newVolume = Number.parseInt(e.target.value, 10)
+      setVolume(newVolume)
+      playerRef.current.setVolume(newVolume)
 
-    if (newVolume === 0 && !isMuted) {
-      playerRef.current.mute()
-      setIsMuted(true)
-    } else if (newVolume > 0 && isMuted) {
-      playerRef.current.unMute()
-      setIsMuted(false)
-    }
-  }
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!playerRef.current || syncInProgressRef.current) return
-
-    const seekTime = Number.parseFloat(e.target.value)
-
-    wasPlayingBeforeSeekRef.current = isPlaying
-    seekingRef.current = true
-    isUserActionRef.current = true
-    syncInProgressRef.current = true
-    playerRef.current.seekTo(seekTime, true)
-    setCurrentTime(seekTime)
-
-    if (roomId && socket) {
-      socket.emit("sync_action", {
-        action: wasPlayingBeforeSeekRef.current ? "seek_playing" : "seek_paused",
-        time: seekTime,
-        roomId,
-        videoId: playerRef.current.getVideoData()?.video_id,
-      })
-    }
-
-    setTimeout(() => {
-      syncInProgressRef.current = false
-      seekingRef.current = false
-
-      // If it was playing before, ensure it's still playing
-      if (wasPlayingBeforeSeekRef.current && playerRef.current) {
-        playerRef.current.playVideo()
+      // If volume is 0, mute the player, otherwise ensure it's unmuted
+      if (newVolume === 0 && !isMuted) {
+        playerRef.current.mute()
+        setIsMuted(true)
+      } else if (newVolume > 0 && isMuted) {
+        playerRef.current.unMute()
+        setIsMuted(false)
       }
-    }, 500)
-  }
+    },
+    [isMuted],
+  )
 
-  const handlePrevious = () => {
+  const handleSeek = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!playerRef.current || syncInProgressRef.current) return
+
+      const seekTime = Number.parseFloat(e.target.value)
+      logAction(`User seeking to ${seekTime}`)
+
+      // Remember if the video was playing before seeking
+      wasPlayingBeforeSeekRef.current = isPlaying
+
+      // Mark as seeking to prevent unwanted pause events
+      seekingRef.current = true
+
+      // Mark as user action to ensure we emit events
+      isUserActionRef.current = true
+
+      // Mark as sync in progress to prevent event loops
+      syncInProgressRef.current = true
+
+      // Seek to the new time
+      playerRef.current.seekTo(seekTime, true)
+      setCurrentTime(seekTime)
+
+      // Emit seek event to sync with other users
+      if (roomId && socket) {
+        logAction(`Emitting seek to ${seekTime} to server (playing: ${wasPlayingBeforeSeekRef.current})`)
+        socket.emit("sync_action", {
+          action: wasPlayingBeforeSeekRef.current ? "seek_playing" : "seek_paused",
+          time: seekTime,
+          roomId,
+          videoId: playerRef.current.getVideoData()?.video_id,
+          timestamp: Date.now(),
+        })
+      }
+
+      // Reset sync flag after a delay
+      setTimeout(() => {
+        syncInProgressRef.current = false
+
+        // If it was playing before, ensure it's still playing
+        if (wasPlayingBeforeSeekRef.current && playerRef.current) {
+          playerRef.current.playVideo()
+        }
+      }, 500)
+    },
+    [isPlaying, roomId, socket, logAction],
+  )
+
+  const handlePrevious = useCallback(() => {
     if (onPrevious) {
+      logAction("User clicked previous button")
       onPrevious()
     }
-  }
+  }, [onPrevious, logAction])
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (onNext) {
+      logAction("User clicked next button")
       onNext()
     }
-  }
+  }, [onNext, logAction])
 
-  const formatTime = (seconds: number) => {
+  const formatTime = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`
-  }
+  }, [])
 
   const opts: YouTubeProps["opts"] = {
     height: "100%",
     width: "100%",
     playerVars: {
       rel: 0,
-      autoplay: 0,
-      controls: 0,
+      autoplay: 0, // Start paused
+      controls: 0, // Hide YouTube controls
       modestbranding: 1,
-      disablekb: 0,
+      disablekb: 0, // Enable keyboard controls
       enablejsapi: 1,
       origin: typeof window !== "undefined" ? window.location.origin : "",
     },
   }
 
-  const videoId = currentVideoID;
+  // Use a default video ID if none is provided
+  const videoId = currentVideoID || "2Vv-BfVoq4g" // Default to Ed Sheeran - Shape of You
 
   return (
     <div className="w-full">

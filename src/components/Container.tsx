@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import io, { type Socket } from "socket.io-client"
 import JoinScreen from "./JoinScreen"
 import PlayerScreen from "./PlayerScreen"
@@ -17,171 +17,281 @@ export default function Container() {
   const [isConnecting, setIsConnecting] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
-  const [playerReady, setPlayerReady] = useState(false)
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const initialSyncRef = useRef<{ action: string; time: number; videoId?: string,timestamp: number } | null>(null)
 
-  const handleJoin = (roomId: string) => {
-    if (roomId && webSocket) {
-      console.log(`Joining room: ${roomId}`)
-      webSocket?.emit("join_room", { roomId: roomId.trim() })
-      setRoomId(roomId)
-    }
-  }
-
-  const handleLeave = () => {
-    if (roomId && webSocket) {
-      console.log(`Leaving room: ${roomId}`)
-      webSocket?.emit("leave_room", { roomId })
-      setRoomId("")
-      // Reset video state
-      setCurrentVideoId("")
-      setMyPlayList([])
-      // Cancel any pending sync
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current)
-      }
-    }
-  }
-
-  const changeMedia = ({ videoId }: { videoId: string }) => {
-    console.log("Changing media to:", videoId)
-    setCurrentVideoId(videoId)
-    initialSyncRef.current = { action: "pause", time: 0, videoId, timestamp: Date.now() }
-  }
-
-  const syncAction = ({
-    action,
-    time,
-    videoId,
-    isInitialSync = false,
-  }: {
+  // Use refs for values that need to persist between renders and don't trigger re-renders
+  const playerReadyRef = useRef(false)
+  const lastSyncActionRef = useRef<{
     action: string
     time: number
     videoId?: string
-    isInitialSync?: boolean
-  }) => {
-    console.log(
-      `Received sync action: ${action} at ${time} for video ${videoId || currentVideoID}, isInitial: ${isInitialSync}`,
-    )
+    timestamp: number
+  } | null>(null)
+  const syncInProgressRef = useRef(false)
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const initialSyncAppliedRef = useRef(false)
 
-    if (isInitialSync) {
-      initialSyncRef.current = { action, time, videoId , timestamp: Date.now()}
+  // Debug logging helper
+  const logAction = useCallback((message: string, data?: any) => {
+    const timestamp = new Date().toISOString().split("T")[1].split(".")[0]
+    console.log(`[${timestamp}] ${message}`, data || "")
+  }, [])
 
-      if (videoId && videoId !== currentVideoID) {
-        setCurrentVideoId(videoId)
+  const handleJoin = useCallback(
+    (roomId: string) => {
+      if (roomId && webSocket) {
+        logAction(`Joining room: ${roomId}`)
+        webSocket.emit("join_room", { roomId: roomId.trim() })
+        setRoomId(roomId)
+      }
+    },
+    [webSocket, logAction],
+  )
+
+  const handleLeave = useCallback(() => {
+    if (roomId && webSocket) {
+      logAction(`Leaving room: ${roomId}`)
+      webSocket.emit("leave_room", { roomId })
+      setRoomId("")
+      setCurrentVideoId("")
+      setMyPlayList([])
+
+      // Reset all refs
+      playerReadyRef.current = false
+      lastSyncActionRef.current = null
+      syncInProgressRef.current = false
+      initialSyncAppliedRef.current = false
+
+      // Clear any pending timers
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
+    }
+  }, [roomId, webSocket, logAction])
+
+  const changeMedia = useCallback(
+    ({ videoId }: { videoId: string }) => {
+      logAction(`Changing media to: ${videoId}`)
+      setCurrentVideoId(videoId)
+    },
+    [logAction],
+  )
+
+  // Apply a sync action to the player
+  const applySyncAction = useCallback(
+    (action: string, time: number, videoId?: string, timestamp: number = Date.now()) => {
+      if (!playerRef.current || !playerReadyRef.current) {
+        logAction("Player not ready, cannot apply sync action")
+        return false
       }
 
-      // If player is already ready, apply the sync action immediately
-      if (playerRef.current) {
-        applySyncAction(action, time, videoId)
+      if (syncInProgressRef.current) {
+        logAction("Sync already in progress, skipping")
+        return false
       }
-      return
-    }
 
-    // For regular sync actions, add to queue
-    initialSyncRef.current = {
-      action,
-      time,
-      videoId,
-      timestamp: Date.now(),
-    }
+      syncInProgressRef.current = true
+      logAction(`Applying sync action: ${action} at ${time} for video ${videoId || currentVideoID}`)
+      setIsProgrammatic(true)
 
-    // If we have a sync timeout, clear it
-    if (syncTimeoutRef.current) {
-      clearTimeout(syncTimeoutRef.current)
-    }
-
-    // Apply the sync action immediately if player is ready
-    if (playerRef.current) {
-      applySyncAction(action, time, videoId)
-    } else {
-      // Otherwise, queue it for when the player is ready
-      syncTimeoutRef.current = setTimeout(() => {
-        if (playerRef.current) {
-          applySyncAction(action, time, videoId)
-        }
-      }, 1000)
-    }
-  }
-
-  // Function to apply a sync action
-  const applySyncAction = (action: string, time: number, videoId?: string) => {
-    if (!playerRef.current) return
-
-    console.log(`Applying sync action: ${action} at ${time} for video ${videoId || currentVideoID}`)
-
-    setIsProgrammatic(true)
-
-    try {
-      if (videoId && currentVideoID !== videoId) {
-        setCurrentVideoId(videoId)
-
+      try {
+        // Calculate elapsed time for play actions
+        let adjustedTime = time
         if (action === "play" || action === "seek_playing") {
-          console.log(`Loading and playing video ${videoId} at ${time}`)
-          playerRef.current.loadVideoById({ videoId, startSeconds: time || 0 })
+          const elapsedSeconds = (Date.now() - timestamp) / 1000
+          adjustedTime = Math.max(0, Math.min(time + elapsedSeconds, 3600)) // Cap between 0 and 1 hour
+          logAction(`Adjusting time for ${action}: ${time} + ${elapsedSeconds}s = ${adjustedTime}`)
+        }
+
+        // If video ID is different, load the new video
+        if (videoId && currentVideoID !== videoId) {
+          setCurrentVideoId(videoId)
+
+          // If action is play or seek_playing, load and play the video
+          if (action === "play" || action === "seek_playing") {
+            logAction(`Loading and playing video ${videoId} at ${adjustedTime}`)
+
+            // First load the video with the adjusted time
+            playerRef.current.loadVideoById({ videoId, startSeconds: adjustedTime })
+
+            // Force play after a short delay to ensure it actually plays
+            setTimeout(() => {
+              if (playerRef.current) {
+                logAction("Forcing play after video load")
+                playerRef.current.playVideo()
+
+                // Double-check that it's playing
+                setTimeout(() => {
+                  if (playerRef.current && playerRef.current.getPlayerState() !== 1) {
+                    logAction("Video still not playing, forcing play again")
+                    playerRef.current.playVideo()
+                  }
+                }, 500)
+              }
+            }, 300)
+          } else {
+            // Otherwise just cue it
+            logAction(`Cueing video ${videoId} at ${adjustedTime}`)
+            playerRef.current.cueVideoById({ videoId, startSeconds: adjustedTime })
+          }
         } else {
-          playerRef.current.cueVideoById({ videoId, startSeconds: time || 0 })
+          // Handle actions for the current video
+          if (action === "play" || action === "seek_playing") {
+            logAction(`Seeking to ${adjustedTime} and playing`)
+
+            // First seek to the time
+            playerRef.current.seekTo(adjustedTime, true)
+
+            // Then play with multiple attempts to ensure it works
+            const playAttempt = (attempt = 1) => {
+              logAction(`Play attempt ${attempt}`)
+              playerRef.current?.playVideo()
+
+              // Check if it's actually playing after a short delay
+              if (attempt < 3) {
+                setTimeout(() => {
+                  if (playerRef.current && playerRef.current.getPlayerState() !== 1) {
+                    logAction(`Play didn't take effect, retrying (attempt ${attempt + 1})`)
+                    playAttempt(attempt + 1)
+                  }
+                }, 300)
+              }
+            }
+
+            playAttempt()
+          } else if (action === "pause" || action === "seek_paused") {
+            logAction(`Seeking to ${adjustedTime} and pausing`)
+            playerRef.current.seekTo(adjustedTime, true)
+            playerRef.current.pauseVideo()
+          } else if (action === "end") {
+            logAction("Video ended, handling end action")
+            playerRef.current.pauseVideo()
+          }
+        }
+
+        // Reset flags after a delay
+        setTimeout(() => {
+          syncInProgressRef.current = false
+          setIsProgrammatic(false)
+        }, 1000)
+
+        return true
+      } catch (error) {
+        logAction(`Error in applySyncAction: ${error}`)
+        syncInProgressRef.current = false
+        setIsProgrammatic(false)
+        return false
+      }
+    },
+    [currentVideoID, logAction],
+  )
+
+  // Handle sync action from server
+  const syncAction = useCallback(
+    ({ action, time, videoId, timestamp = Date.now(), isInitialSync = false }) => {
+      logAction(
+        `Received sync action: ${action} at ${time} for video ${videoId || currentVideoID}, isInitial: ${isInitialSync}`,
+      )
+
+      // Store the action for later reference
+      lastSyncActionRef.current = {
+        action,
+        time,
+        videoId,
+        timestamp,
+      }
+
+      // If player is ready, apply immediately
+      if (playerReadyRef.current && playerRef.current) {
+        logAction("Player ready, applying sync action immediately")
+        applySyncAction(action, time, videoId, timestamp)
+
+        if (isInitialSync) {
+          initialSyncAppliedRef.current = true
         }
       } else {
-        if (action === "play" || action === "seek_playing") {
-          console.log(`Seeking to ${time} and playing`)
-          playerRef.current.seekTo(time, true)
-          if (playerReady) {
-            playerRef.current.playVideo()
-          }
-        } else if (action === "pause" || action === "seek_paused") {
-          console.log(`Seeking to ${time} and pausing`)
-          playerRef.current.seekTo(time, true)
-          playerRef.current.pauseVideo()
-        } else if (action === "end") {
-          console.log("Video ended, handling end action")
-          playerRef.current.pauseVideo()
+        // Otherwise, schedule a retry
+        logAction("Player not ready, scheduling retry")
+
+        // Clear any existing retry timer
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current)
         }
 
-        // if(playerRef.current.getCurrentTime()){
-        //   playerRef.current.getCurrentTime()
-        // };
+        // Set up a new retry
+        retryTimerRef.current = setTimeout(() => {
+          if (playerReadyRef.current && playerRef.current) {
+            logAction("Retrying sync action after delay")
+            applySyncAction(action, time, videoId, timestamp)
+
+            if (isInitialSync) {
+              initialSyncAppliedRef.current = true
+            }
+          } else {
+            logAction("Player still not ready after delay, will retry on player ready")
+          }
+        }, 1000)
       }
+    },
+    [currentVideoID, applySyncAction, logAction],
+  )
 
-      setTimeout(() => setIsProgrammatic(false), 1000)
-    } catch (error) {
-      console.error("Error in applySyncAction:", error)
-      setIsProgrammatic(false)
+  // Handle playlist sync from server
+  const syncPlaylist = useCallback(
+    ({ playlist, playlistIndex }: { playlist: string[]; playlistIndex?: number }) => {
+      logAction(`Syncing playlist: ${playlist.length} items, current index: ${playlistIndex}`)
+      setMyPlayList(playlist)
+    },
+    [logAction],
+  )
+
+  // Set player reference when YouTube player is ready
+  const setPlayerReference = useCallback(
+    (player: YouTubePlayer) => {
+      logAction("Player reference set")
+      playerRef.current = player
+      playerReadyRef.current = true
+      setLoading(false)
+
+      // If we have a pending sync action, apply it now
+      if (lastSyncActionRef.current && !initialSyncAppliedRef.current) {
+        const { action, time, videoId, timestamp } = lastSyncActionRef.current
+        logAction("Applying pending sync action now that player is ready")
+
+        // Give a short delay to ensure player is fully initialized
+        setTimeout(() => {
+          applySyncAction(action, time, videoId, timestamp)
+          initialSyncAppliedRef.current = true
+        }, 500)
+      }
+    },
+    [applySyncAction, logAction],
+  )
+
+  // Handle next/previous video
+  const handlePrevious = useCallback(() => {
+    if (webSocket && roomId) {
+      logAction("Sending previous video request")
+      webSocket.emit("change_media", { action: "prev", roomId })
     }
-  }
+  }, [webSocket, roomId, logAction])
 
-  const syncPlaylist = ({
-    playlist,
-    playlistIndex,
-  }: {
-    playlist: string[]
-    playlistIndex?: number
-  }) => {
-    console.log("Syncing playlist:", playlist, "current index:", playlistIndex)
-    setMyPlayList(playlist)
-  }
-
-  const setPlayerReference = (player: YouTubePlayer) => {
-    playerRef.current = player
-    setPlayerReady(true)
-    setLoading(false)
-
-    if (initialSyncRef.current) {
-      console.log("Applying initial sync after player is ready:", initialSyncRef.current)
-      const { action, time, videoId } = initialSyncRef.current
-      applySyncAction(action, time, videoId)
+  const handleNext = useCallback(() => {
+    if (webSocket && roomId) {
+      logAction("Sending next video request")
+      webSocket.emit("change_media", { action: "next", roomId })
     }
-  }
+  }, [webSocket, roomId, logAction])
 
+  // Initialize socket connection
   useEffect(() => {
     let socket: Socket
 
     try {
-      // Determine the socket URL based on environment
       const socketUrl =
         process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== "undefined" && window.location.origin) || "/"
-      console.log("Connecting to socket URL:", socketUrl)
+
+      logAction(`Connecting to socket URL: ${socketUrl}`)
 
       socket = io(socketUrl, {
         transports: ["websocket", "polling"],
@@ -190,7 +300,7 @@ export default function Container() {
       })
 
       socket.io.on("reconnect_attempt", () => {
-        console.log("Attempting to reconnect...")
+        logAction("Attempting to reconnect...")
       })
 
       socket.io.on("reconnect_failed", () => {
@@ -198,59 +308,63 @@ export default function Container() {
       })
 
       socket.on("connect", () => {
-        console.log("Connected to server with ID:", socket.id)
+        logAction(`Connected to server with ID: ${socket.id}`)
         setWebSocket(socket)
         setIsConnecting(false)
       })
 
       socket.on("connect_error", (err) => {
-        console.error("Connection error:", err)
+        logAction(`Connection error: ${err.message}`)
         setError("Failed to connect to server. Please try again later.")
         setIsConnecting(false)
       })
 
+      // Set up event listeners
       socket.on("change_media", changeMedia)
-      socket.on("sync_action", syncAction)
+      socket.on("sync_action", (data) => syncAction(data))
       socket.on("initial_sync", (data) => syncAction({ ...data, isInitialSync: true }))
       socket.on("sync_playlist", syncPlaylist)
-      socket.on("disconnect", () => console.log("Disconnected from server"))
+      socket.on("disconnect", () => logAction("Disconnected from server"))
 
       return () => {
-        if (syncTimeoutRef.current) {
-          clearTimeout(syncTimeoutRef.current)
+        // Clean up timers
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current)
         }
+
+        // Clean up socket listeners
         socket.off("change_media", changeMedia)
-        socket.off("sync_action", syncAction)
-        socket.off("initial_sync", syncAction)
+        socket.off("sync_action")
+        socket.off("initial_sync")
         socket.off("sync_playlist", syncPlaylist)
         socket.disconnect()
       }
     } catch (err) {
-      console.error("Socket initialization error:", err)
+      logAction(`Socket initialization error: ${err}`)
       setError("Failed to initialize connection. Please try again later.")
       setIsConnecting(false)
+
       return () => {
-        if (syncTimeoutRef.current) {
-          clearTimeout(syncTimeoutRef.current)
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current)
         }
       }
     }
-  }, [])
+  }, [changeMedia, syncAction, syncPlaylist, logAction])
 
   // Effect to check loading state
   useEffect(() => {
-    // If we're connected but player isn't ready after 10 seconds, stop showing loading
     if (!isConnecting && loading) {
       const timeout = setTimeout(() => {
         if (loading) {
-          console.log("Timeout reached, forcing loading to false")
+          logAction("Timeout reached, forcing loading to false")
           setLoading(false)
         }
       }, 10000)
 
       return () => clearTimeout(timeout)
     }
-  }, [isConnecting, loading])
+  }, [isConnecting, loading, logAction])
 
   return (
     <>
@@ -270,7 +384,9 @@ export default function Container() {
             currentVideoID={currentVideoID}
             isProgrammatic={isProgrammatic}
             onPlayerReady={setPlayerReference}
-            lastSyncActionRef={initialSyncRef}
+            onPrevious={handlePrevious}
+            onNext={handleNext}
+            lastSyncActionRef={lastSyncActionRef}
           />
           <JoinScreen loading={loading || isConnecting} roomId={roomId} handleJoin={handleJoin} />
         </>
