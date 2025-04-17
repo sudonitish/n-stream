@@ -1,36 +1,117 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# N-Stream: Real-Time Video Synchronization App
+
+N-Stream is a real-time video synchronization application built with [Next.js](https://nextjs.org), [Socket.IO](https://socket.io), and [react-youtube](https://www.npmjs.com/package/react-youtube). It allows multiple users to join a room and watch synchronized YouTube videos together, with real-time playback controls.
+
+## Features
+
+- **Real-Time Synchronization**: Play, pause, and seek videos in sync across all users in a room.
+- **Room Management**: Create or join rooms to watch videos with friends.
+- **YouTube Integration**: Stream YouTube videos directly in the app using the `react-youtube` library.
+- **Responsive Design**: Optimized for both desktop and mobile devices.
+- **Error Handling**: Handles reconnections and sync issues gracefully.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Make sure you have the following installed:
+
+- [Node.js](https://nodejs.org) (v16 or higher)
+- [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/)
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/n-stream.git
+   cd n-stream
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+3. Create a `.env` file in the root directory and add the following environment variables:
+   ```env
+   # .env file structure
+   NEXT_PUBLIC_SOCKET_URL=http://your-socket-url
+   CLIENT_ORIGIN=http://your-client-origin
+   ```
+
+   **Note**: Do not push the `.env` file to version control. Instead, use a `.env.example` file to share the structure of the environment variables.
+
+4. Start the development server:
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+5. Open [http://localhost:3000](http://localhost:3000) in your browser to see the app.
+
+## Running the Server
+
+The server is built with Express and Socket.IO. To start the server:
+
+1. Run the server:
+   ```bash
+   node server.js
+   ```
+
+2. The server will start on [http://localhost:3000](http://localhost:3000).
+
+## Project Structure
+
+```
+n-stream/
+├── public/                 # Static assets
+├── src/
+│   ├── components/         # React components
+│   │   ├── Container.tsx   # Main app container
+│   │   ├── Player.tsx      # YouTube player component using react-youtube
+│   │   ├── PlayerScreen.tsx# Player screen with controls
+│   │   ├── JoinScreen.tsx  # Room join screen
+│   ├── pages/              # Next.js pages
+├── server.js               # Express and Socket.IO server
+├── .env                    # Environment variables (not pushed to version control)
+├── .env.example            # Example environment variables file
+├── package.json            # Project dependencies
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Usage
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Join a Room**:
+   - Enter a room ID to join an existing room or create a new one.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **Control Playback**:
+   - Use the play, pause, and seek controls to synchronize video playback across all users in the room.
+
+3. **Add Videos**:
+   - Add YouTube video URLs to the playlist for everyone in the room to watch.
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
+To learn more about the technologies used in this project, check out the following resources:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [Next.js Documentation](https://nextjs.org/docs) - Learn about Next.js features and API.
+- [Socket.IO Documentation](https://socket.io/docs/) - Learn how Socket.IO enables real-time communication.
+- [react-youtube Documentation](https://www.npmjs.com/package/react-youtube) - Learn how to embed and control YouTube videos using the `react-youtube` library.
+- [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference) - Learn how to embed and control YouTube videos.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Contributing
 
-## Deploy on Vercel
+Contributions are welcome! If you'd like to contribute, please fork the repository and submit a pull request.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+## Acknowledgments
+
+- [Next.js](https://nextjs.org)
+- [Socket.IO](https://socket.io)
+- [react-youtube](https://www.npmjs.com/package/react-youtube)
+- [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference)
