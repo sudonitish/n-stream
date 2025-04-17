@@ -25,6 +25,12 @@ app.use(express.static("public"))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+// Debug logging helper
+const logAction = (message, data) => {
+  const timestamp = new Date().toISOString().split("T")[1].split(".")[0]
+  console.log(`[${timestamp}] SERVER: ${message}`, data || "")
+}
+
 // WebSocket Logic
 const roomStates = {}
 const playlist = [
@@ -33,7 +39,7 @@ const playlist = [
 ]
 
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id)
+  logAction(`A user connected: ${socket.id}`)
 
   socket.on("join_room", ({ roomId }) => {
     socket.join(roomId)
@@ -54,42 +60,30 @@ io.on("connection", (socket) => {
 
     const room = roomStates[roomId]
 
-    console.log(`User ${socket.id} joined room: ${roomId}, Total users: ${usersArray.length}`)
-    console.log(`Current room state:`, {
+    logAction(`User ${socket.id} joined room: ${roomId}, Total users: ${usersArray.length}`)
+    logAction(`Current room state:`, {
       videoId: room.videoId,
       action: room.action,
       time: room.time,
       playlistIndex: room.playlistIndex,
     })
 
-    // If there are other users in the room, get the current state
-    if (usersArray.length > 1) {
-      console.log("Syncing with existing users")
-
-      // Calculate current time based on elapsed time since last update
-      let currentTime = room.time
-      if (room.action === "play") {
-        const elapsedSeconds = (Date.now() - room.lastUpdateTime) / 1000
-        currentTime = Math.min(room.time + elapsedSeconds, 3600) // Cap at 1 hour to prevent extreme values
-        console.log(`Calculated current time: ${currentTime} (elapsed: ${elapsedSeconds}s)`)
-      }
-
-      // Send the current state to the new user
-      console.log(`Sending initial sync to new user: ${room.action} at ${currentTime}`)
-      socket.emit("initial_sync", {
-        action: room.action,
-        time: currentTime,
-        videoId: room.videoId,
-      })
-    } else {
-      console.log("First user in room, initializing state")
-      // First user gets the initial state
-      socket.emit("initial_sync", {
-        action: "pause", // Always start paused for first user
-        time: 0,
-        videoId: room.videoId,
-      })
+    // Calculate current time based on elapsed time since last update
+    let currentTime = room.time
+    if (room.action === "play" || room.action === "seek_playing") {
+      const elapsedSeconds = (Date.now() - room.lastUpdateTime) / 1000
+      currentTime = Math.min(room.time + elapsedSeconds, 3600) // Cap at 1 hour to prevent extreme values
+      logAction(`Calculated current time: ${currentTime} (elapsed: ${elapsedSeconds}s)`)
     }
+
+    // Send the current state to the new user with timestamp
+    logAction(`Sending initial sync to new user: ${room.action} at ${currentTime}`)
+    socket.emit("initial_sync", {
+      action: room.action,
+      time: currentTime,
+      videoId: room.videoId,
+      timestamp: Date.now(),
+    })
 
     // Always send the playlist
     socket.emit("sync_playlist", {
@@ -98,62 +92,20 @@ io.on("connection", (socket) => {
     })
   })
 
-  // Handle request for player state from new users
-  socket.on("request_player_state", ({ roomId }) => {
-    console.log(`User ${socket.id} requested player state for room ${roomId}`)
-
-    const roomUsers = io.sockets.adapter.rooms.get(roomId)
-    if (!roomUsers || roomUsers.size <= 1) {
-      console.log("No other users in room to request state from")
-      return
-    }
-
-    // Get all users in the room except the requester
-    const otherUsers = Array.from(roomUsers).filter((id) => id !== socket.id)
-
-    if (otherUsers.length > 0) {
-      // Select a random user to respond
-      const randomUserIndex = Math.floor(Math.random() * otherUsers.length)
-      const randomUserId = otherUsers[randomUserIndex]
-
-      console.log(`Requesting state from user ${randomUserId}`)
-      io.to(randomUserId).emit("request_player_state")
-    }
-  })
-
-  // Handle player state response from existing users
-  socket.on("player_state_response", ({ roomId, state }) => {
-    console.log(`Received player state from user ${socket.id} for room ${roomId}:`, state)
-
-    // Forward the state to all other users in the room who joined recently
-    socket.to(roomId).emit("player_state_response", { state })
-
-    // Update room state
-    if (roomStates[roomId] && state) {
-      roomStates[roomId].action = state.isPlaying ? "play" : "pause"
-      roomStates[roomId].time = state.currentTime
-      roomStates[roomId].lastUpdateTime = Date.now()
-
-      if (state.videoId) {
-        roomStates[roomId].videoId = state.videoId
-      }
-    }
-  })
-
   socket.on("leave_room", ({ roomId }) => {
     socket.leave(roomId)
-    console.log(`User ${socket.id} left room: ${roomId}`)
+    logAction(`User ${socket.id} left room: ${roomId}`)
 
     // Check if room is empty and clean up if needed
     const roomUsers = io.sockets.adapter.rooms.get(roomId)
     if (!roomUsers || roomUsers.size === 0) {
-      console.log(`Room ${roomId} is empty, cleaning up`)
+      logAction(`Room ${roomId} is empty, cleaning up`)
       delete roomStates[roomId]
     }
   })
 
   socket.on("upload_media", ({ roomId, videoUrl }) => {
-    console.log(`Adding video to room ${roomId}: ${videoUrl}`)
+    logAction(`Adding video to room ${roomId}: ${videoUrl}`)
     if (roomStates[roomId] && videoUrl) {
       roomStates[roomId].playlist.push(videoUrl)
       io.to(roomId).emit("sync_playlist", {
@@ -164,31 +116,53 @@ io.on("connection", (socket) => {
   })
 
   socket.on("change_media", ({ action, roomId }) => {
-    console.log(`Changing media in room ${roomId}: ${action}`)
+    logAction(`Changing media in room ${roomId}: ${action}`)
     const room = roomStates[roomId]
-    if (!room || room.playlist.length === 0) return
+    if (!room || room.playlist.length === 0) {
+      logAction(`Room ${roomId} not found or empty playlist`)
+      return
+    }
 
     const { playlist, playlistIndex } = room
-    room.playlistIndex =
-      action === "next"
-        ? (playlistIndex + 1) % playlist.length
-        : (playlistIndex - 1 + playlist.length) % playlist.length
+    let newIndex
 
-    room.videoId = getYouTubeVideoId(room.playlist[room.playlistIndex])
+    if (action === "next") {
+      newIndex = (playlistIndex + 1) % playlist.length
+      logAction(`Moving to next video, new index: ${newIndex}`)
+    } else if (action === "prev") {
+      newIndex = (playlistIndex - 1 + playlist.length) % playlist.length
+      logAction(`Moving to previous video, new index: ${newIndex}`)
+    } else {
+      logAction(`Unknown action: ${action}`)
+      return
+    }
 
+    room.playlistIndex = newIndex
+    const newVideoId = getYouTubeVideoId(room.playlist[newIndex])
+    room.videoId = newVideoId
+
+    // Update room state
     Object.assign(room, {
       time: 0,
       lastUpdateTime: Date.now(),
-      action: "pause",
+      action: "pause", // Start paused when changing media
     })
 
-    io.to(roomId).emit("change_media", { videoId: room.videoId })
-    io.to(roomId).emit("sync_playlist", { playlist: room.playlist, playlistIndex: room.playlistIndex })
+    logAction(`Changed media to index ${newIndex}, video ID: ${newVideoId}`)
+
+    // Broadcast the change to all clients in the room (including sender)
+    io.to(roomId).emit("change_media", { videoId: newVideoId })
+    io.to(roomId).emit("sync_playlist", {
+      playlist: room.playlist,
+      playlistIndex: newIndex,
+    })
   })
 
-  socket.on("sync_action", ({ action, time, roomId, videoId }) => {
+  socket.on("sync_action", ({ action, time, roomId, videoId, timestamp = Date.now() }) => {
+    logAction(`Sync action from ${socket.id} in room ${roomId}: ${action} at ${time}`)
 
     if (!roomStates[roomId]) {
+      logAction(`Room ${roomId} not found, creating it`)
       roomStates[roomId] = {
         videoId: videoId || getYouTubeVideoId(playlist[0]),
         time: 0,
@@ -201,48 +175,57 @@ io.on("connection", (socket) => {
 
     const room = roomStates[roomId]
 
+    // Update room state
     Object.assign(room, {
       action,
       time,
-      lastUpdateTime: Date.now(),
+      lastUpdateTime: timestamp,
       videoId: videoId || room.videoId,
     })
 
-    io.to(roomId).emit("sync_action", {
+    // Broadcast to ALL users in the room EXCEPT the sender
+    socket.to(roomId).emit("sync_action", {
       action,
       time,
       videoId: room.videoId,
+      timestamp,
     })
   })
 
-  socket.on("get_new_sync", ({ roomId }) => {
+  socket.on("get_current_state", ({ roomId }) => {
+    logAction(`User ${socket.id} requested current state for room ${roomId}`)
 
-
-    const room = roomStates[roomId] || {
-      videoId: getYouTubeVideoId(playlist[0]),
-      time: 0,
-      action: "pause",
-      playlist: [...playlist],
-      playlistIndex: 0,
-      lastUpdateTime: Date.now(),
+    if (!roomStates[roomId]) {
+      logAction(`Room ${roomId} not found, cannot provide state`)
+      return
     }
 
+    const room = roomStates[roomId]
+
+    // Calculate current time based on elapsed time since last update
+    let currentTime = room.time
+    if (room.action === "play" || room.action === "seek_playing") {
+      const elapsedSeconds = (Date.now() - room.lastUpdateTime) / 1000
+      currentTime = Math.min(room.time + elapsedSeconds, 3600)
+      logAction(`Calculated current time: ${currentTime} (elapsed: ${elapsedSeconds}s)`)
+    }
 
     socket.emit("sync_action", {
       action: room.action,
-      time: room.time,
+      time: currentTime,
       videoId: room.videoId,
+      timestamp: Date.now(),
     })
   })
 
   socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.id}`)
+    logAction(`User disconnected: ${socket.id}`)
 
     // Clean up any rooms this user was the last member of
     for (const roomId in roomStates) {
       const roomUsers = io.sockets.adapter.rooms.get(roomId)
       if (!roomUsers || roomUsers.size === 0) {
-        console.log(`Room ${roomId} is empty after disconnect, cleaning up`)
+        logAction(`Room ${roomId} is empty after disconnect, cleaning up`)
         delete roomStates[roomId]
       }
     }
@@ -261,7 +244,7 @@ nextApp
   .then(() => {
     server.listen(PORT, (err) => {
       if (err) throw err
-      console.log(`App running on port: ${PORT}`)
+      logAction(`App running on port: ${PORT}`)
     })
   })
   .catch((err) => {

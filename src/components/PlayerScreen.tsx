@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import type { Socket } from "socket.io-client"
 import type { YouTubePlayer } from "react-youtube"
@@ -16,7 +18,9 @@ interface PlayerScreenProps {
   loading: boolean
   handleLeave: () => void
   onPlayerReady: (player: YouTubePlayer) => void
-  lastSyncActionRef: React.RefObject<{ action: string; time: number; videoId?: string; timestamp: number } | null>
+  onPrevious?: () => void
+  onNext?: () => void
+  lastSyncActionRef?: React.RefObject<{ action: string; time: number; videoId?: string; timestamp: number } | null>
 }
 
 export default function PlayerScreen({
@@ -28,6 +32,8 @@ export default function PlayerScreen({
   myPlayList,
   loading,
   onPlayerReady,
+  onPrevious,
+  onNext,
   lastSyncActionRef,
 }: PlayerScreenProps) {
   const [newVideoUrl, setNewVideoUrl] = useState("")
@@ -52,18 +58,6 @@ export default function PlayerScreen({
     alert("Room ID copied to clipboard!")
   }
 
-  const handlePrevious = () => {
-    if (socket) {
-      socket.emit("change_media", { action: "prev", roomId })
-    }
-  }
-
-  const handleNext = () => {
-    if (socket) {
-      socket.emit("change_media", { action: "next", roomId })
-    }
-  }
-
   return (
     <div
       className={`relative z-10 container mx-auto px-4 flex flex-col items-center justify-center min-h-screen py-8 ${roomId && !loading ? "" : "hidden"}`}
@@ -82,8 +76,8 @@ export default function PlayerScreen({
           currentVideoID={currentVideoID}
           isProgrammatic={isProgrammatic}
           onPlayerReady={onPlayerReady}
-          onPrevious={handlePrevious}
-          onNext={handleNext}
+          onPrevious={onPrevious}
+          onNext={onNext}
           lastSyncActionRef={lastSyncActionRef}
         />
 
@@ -112,7 +106,11 @@ export default function PlayerScreen({
   )
 }
 
-const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
+interface PlaylistProps {
+  myPlayList: string[]
+}
+
+const Playlist = ({ myPlayList }: PlaylistProps) => {
   return (
     <div className="mt-8 w-full max-w-3xl">
       {myPlayList.length > 0 && (
