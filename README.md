@@ -41,8 +41,6 @@ Make sure you have the following installed:
    CLIENT_ORIGIN=http://your-client-origin
    ```
 
-   **Note**: Do not push the `.env` file to version control. Instead, use a `.env.example` file to share the structure of the environment variables.
-
 4. Start the development server:
    ```bash
    npm run dev
@@ -77,7 +75,6 @@ n-stream/
 │   ├── pages/              # Next.js pages
 ├── server.js               # Express and Socket.IO server
 ├── .env                    # Environment variables (not pushed to version control)
-├── .env.example            # Example environment variables file
 ├── package.json            # Project dependencies
 ```
 
