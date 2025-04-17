@@ -37,8 +37,8 @@ Make sure you have the following installed:
 3. Create a `.env` file in the root directory and add the following environment variables:
    ```env
    # .env file structure
-   NEXT_PUBLIC_SOCKET_URL=http://your-socket-url
-   CLIENT_ORIGIN=http://your-client-origin
+   NEXT_PUBLIC_SOCKET_URL=http://your-domain-url
+   PORT=PORT_NUMBER
    ```
 
 4. Start the development server:
