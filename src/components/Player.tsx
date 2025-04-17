@@ -375,6 +375,14 @@ export default function Player({
   const handlePrevious = useCallback(() => {
     if (onPrevious) {
       logAction("User clicked previous button")
+      // Add a visual feedback that the button was clicked
+      const prevButton = document.querySelector('[aria-label="Previous video"]')
+      if (prevButton) {
+        prevButton.classList.add("bg-white/20")
+        setTimeout(() => {
+          prevButton.classList.remove("bg-white/20")
+        }, 200)
+      }
       onPrevious()
     }
   }, [onPrevious, logAction])
@@ -382,6 +390,14 @@ export default function Player({
   const handleNext = useCallback(() => {
     if (onNext) {
       logAction("User clicked next button")
+      // Add a visual feedback that the button was clicked
+      const nextButton = document.querySelector('[aria-label="Next video"]')
+      if (nextButton) {
+        nextButton.classList.add("bg-white/20")
+        setTimeout(() => {
+          nextButton.classList.remove("bg-white/20")
+        }, 200)
+      }
       onNext()
     }
   }, [onNext, logAction])

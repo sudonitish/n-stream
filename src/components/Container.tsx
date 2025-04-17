@@ -331,10 +331,6 @@ export default function Container() {
 
   // Initialize socket connection
   useEffect(() => {
-    // Only initialize socket once
-    if (socketInitializedRef.current) return
-    socketInitializedRef.current = true
-
     try {
       const socketUrl =
         process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== "undefined" && window.location.origin) || "/"
@@ -351,6 +347,13 @@ export default function Container() {
       }
 
       const socket = socketInstance
+
+      // Clean up previous listeners to avoid duplicates
+      socket.off("change_media")
+      socket.off("sync_action")
+      socket.off("initial_sync")
+      socket.off("sync_playlist")
+      socket.off("disconnect")
 
       socket.io.on("reconnect_attempt", () => {
         logAction("Attempting to reconnect...")
@@ -373,10 +376,22 @@ export default function Container() {
       })
 
       // Set up event listeners
-      const onChangeMedia = (data: any) => changeMedia(data)
-      const onSyncAction = (data: any) => syncAction(data)
-      const onInitialSync = (data: any) => syncAction({ ...data, isInitialSync: true })
-      const onSyncPlaylist = (data: any) => syncPlaylist(data)
+      const onChangeMedia = (data) => {
+        logAction(`Received change_media event:`, data)
+        changeMedia(data)
+      }
+      const onSyncAction = (data) => {
+        logAction(`Received sync_action event:`, data)
+        syncAction(data)
+      }
+      const onInitialSync = (data) => {
+        logAction(`Received initial_sync event:`, data)
+        syncAction({ ...data, isInitialSync: true })
+      }
+      const onSyncPlaylist = (data) => {
+        logAction(`Received sync_playlist event:`, data)
+        syncPlaylist(data)
+      }
       const onDisconnect = () => logAction("Disconnected from server")
 
       socket.on("change_media", onChangeMedia)

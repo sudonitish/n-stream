@@ -150,7 +150,7 @@ io.on("connection", (socket) => {
 
     logAction(`Changed media to index ${newIndex}, video ID: ${newVideoId}`)
 
-    // Broadcast the change to all clients in the room
+    // Broadcast the change to all clients in the room (including sender)
     io.to(roomId).emit("change_media", { videoId: newVideoId })
     io.to(roomId).emit("sync_playlist", {
       playlist: room.playlist,
