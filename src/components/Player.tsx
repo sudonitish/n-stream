@@ -46,7 +46,7 @@ export default function Player({
   const videoChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Debug logging helper
-  const logAction = useCallback((message: string, data?: any) => {
+  const logAction = useCallback((message: string, data?: unknown) => {
     const timestamp = new Date().toISOString().split("T")[1].split(".")[0]
     console.log(`[${timestamp}] PLAYER: ${message}`, data || "")
   }, [])
@@ -215,7 +215,7 @@ export default function Player({
       }
 
       const currentTime = time !== undefined ? time : playerRef.current?.getCurrentTime() || 0
-      let videoId
+      let videoId: string | undefined
 
       try {
         videoId = playerRef.current?.getVideoData()?.video_id
@@ -324,6 +324,9 @@ export default function Player({
 
           // If we were seeking and now playing, emit a play action
           if (seekingRef.current) {
+            seekingRef.current = false
+
+            // Only emit if it was a user-initiated seek  {
             seekingRef.current = false
 
             // Only emit if it was a user-initiated seek

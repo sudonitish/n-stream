@@ -10,6 +10,23 @@ import type { YouTubePlayer } from "react-youtube"
 // Create a single socket instance outside the component to prevent reconnections
 let socketInstance: Socket | null = null
 
+interface ChangeMediaData {
+  videoId: string
+}
+
+interface SyncActionData {
+  action: string
+  time: number
+  videoId?: string
+  timestamp: number
+  isInitialSync?: boolean
+}
+
+interface SyncPlaylistData {
+  playlist: string[]
+  playlistIndex?: number
+}
+
 export default function Container() {
   const [webSocket, setWebSocket] = useState<Socket | null>(null)
   const [roomId, setRoomId] = useState("")
@@ -32,10 +49,9 @@ export default function Container() {
   const syncInProgressRef = useRef(false)
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null)
   const initialSyncAppliedRef = useRef(false)
-  const socketInitializedRef = useRef(false)
 
   // Debug logging helper
-  const logAction = useCallback((message: string, data?: any) => {
+  const logAction = useCallback((message: string, data?: unknown) => {
     const timestamp = new Date().toISOString().split("T")[1].split(".")[0]
     console.log(`[${timestamp}] ${message}`, data || "")
   }, [])
@@ -78,9 +94,9 @@ export default function Container() {
   }, [roomId, webSocket, logAction])
 
   const changeMedia = useCallback(
-    ({ videoId }: { videoId: string }) => {
-      logAction(`Changing media to: ${videoId}`)
-      setCurrentVideoId(videoId)
+    (data: ChangeMediaData) => {
+      logAction(`Changing media to: ${data.videoId}`)
+      setCurrentVideoId(data.videoId)
     },
     [logAction],
   )
@@ -206,7 +222,9 @@ export default function Container() {
 
   // Handle sync action from server
   const syncAction = useCallback(
-    ({ action, time, videoId, timestamp = Date.now(), isInitialSync = false }) => {
+    (data: SyncActionData) => {
+      const { action, time, videoId, timestamp = Date.now(), isInitialSync = false } = data
+
       logAction(
         `Received sync action: ${action} at ${time} for video ${videoId || currentVideoID}, isInitial: ${isInitialSync}`,
       )
@@ -280,7 +298,8 @@ export default function Container() {
 
   // Handle playlist sync from server
   const syncPlaylist = useCallback(
-    ({ playlist, playlistIndex }: { playlist: string[]; playlistIndex?: number }) => {
+    (data: SyncPlaylistData) => {
+      const { playlist, playlistIndex } = data
       logAction(`Syncing playlist: ${playlist.length} items, current index: ${playlistIndex}`)
       setMyPlayList(playlist)
     },
@@ -376,19 +395,19 @@ export default function Container() {
       })
 
       // Set up event listeners
-      const onChangeMedia = (data) => {
+      const onChangeMedia = (data: ChangeMediaData) => {
         logAction(`Received change_media event:`, data)
         changeMedia(data)
       }
-      const onSyncAction = (data) => {
+      const onSyncAction = (data: SyncActionData) => {
         logAction(`Received sync_action event:`, data)
         syncAction(data)
       }
-      const onInitialSync = (data) => {
+      const onInitialSync = (data: SyncActionData) => {
         logAction(`Received initial_sync event:`, data)
         syncAction({ ...data, isInitialSync: true })
       }
-      const onSyncPlaylist = (data) => {
+      const onSyncPlaylist = (data: SyncPlaylistData) => {
         logAction(`Received sync_playlist event:`, data)
         syncPlaylist(data)
       }

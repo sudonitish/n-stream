@@ -106,7 +106,11 @@ export default function PlayerScreen({
   )
 }
 
-const Playlist = ({ myPlayList }: { myPlayList: string[] }) => {
+interface PlaylistProps {
+  myPlayList: string[]
+}
+
+const Playlist = ({ myPlayList }: PlaylistProps) => {
   return (
     <div className="mt-8 w-full max-w-3xl">
       {myPlayList.length > 0 && (
