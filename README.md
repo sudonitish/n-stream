@@ -48,18 +48,15 @@ Make sure you have the following installed:
    yarn dev
    ```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser to see the app.
-
 ## Running the Server
 
 The server is built with Express and Socket.IO. To start the server:
 
-1. Run the server:
-   ```bash
-   node server.js
-   ```
+Run the server:
+```bash
+node server.js
+```
 
-2. The server will start on [http://localhost:3000](http://localhost:3000).
 
 ## Project Structure
 
