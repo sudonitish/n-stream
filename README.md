@@ -2,6 +2,8 @@
 
 N-Stream is a real-time video synchronization application built with [Next.js](https://nextjs.org), [Socket.IO](https://socket.io), and [react-youtube](https://www.npmjs.com/package/react-youtube). It allows multiple users to join a room and watch synchronized YouTube videos together, with real-time playback controls.
 
+**Copyright (c) sudonitish | Licensed under ECL-2.0 | Educational and non-commercial use only**
+
 ## Features
 
 - **Real-Time Synchronization**: Play, pause, and seek videos in sync across all users in a room.
@@ -93,19 +95,29 @@ To learn more about the technologies used in this project, check out the followi
 - [Next.js Documentation](https://nextjs.org/docs) - Learn about Next.js features and API.
 - [Socket.IO Documentation](https://socket.io/docs/) - Learn how Socket.IO enables real-time communication.
 - [react-youtube Documentation](https://www.npmjs.com/package/react-youtube) - Learn how to embed and control YouTube videos using the `react-youtube` library.
-- [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference) - Learn how to embed and control YouTube videos.
 
 ## Contributing
 
-Contributions are welcome! If you'd like to contribute, please fork the repository and submit a pull request.
+Contributions are welcome for educational purposes! If you'd like to contribute, please:
+1. Fork the repository
+2. Ensure your contributions comply with the ECL-2.0 license terms
+3. Submit a pull request with clear documentation
+
+**Note**: All contributions must be for educational and non-commercial purposes only.
 
 ## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the [Educational Community License, Version 2.0 (ECL-2.0)](LICENSE).
+
+### Key License Points:
+
+- **Educational and non-commercial use only**
+- **Attribution required**
+- **No commercial use without permission**
+- **Name protection for "N-Stream"**
 
 ## Acknowledgments
 
 - [Next.js](https://nextjs.org)
 - [Socket.IO](https://socket.io)
 - [react-youtube](https://www.npmjs.com/package/react-youtube)
-- [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference)
