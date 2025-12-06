@@ -1,9 +1,10 @@
-require("dotenv").config()
-const express = require("express")
-const { Server } = require("socket.io")
-const http = require("http")
-const next = require("next")
+import dotenv from "dotenv";
+import express from "express"
+import { Server } from "socket.io"
+import http from "node:http";
+import next from "next";
 
+dotenv.config();
 const dev = process.env.NODE_ENV !== "production"
 const app = express()
 const server = http.createServer(app)
@@ -35,7 +36,7 @@ const logAction = (message, data) => {
 const roomStates = {}
 const playlist = [
   "https://youtu.be/2Vv-BfVoq4g", // Ed Sheeran - Shape of You
-  "https://youtu.be/y12BRDS1CHI", // Adele - Hello
+  "https://youtu.be/LcIsOnNOlEQ" // Mohit Chauhan - Tum Ho
 ]
 
 io.on("connection", (socket) => {

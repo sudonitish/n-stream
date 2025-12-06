@@ -187,7 +187,7 @@ export default function Player({
       safeLoadVideo(videoId, action, time || 0)
       pendingVideoChangeRef.current = null
     }
-  }, [playerReadyRef.current, safeLoadVideo, logAction])
+  }, [safeLoadVideo, logAction])
 
   // Cleanup on unmount
   useEffect(() => {
