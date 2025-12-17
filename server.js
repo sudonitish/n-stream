@@ -233,32 +233,31 @@ io.on("connection", (socket) => {
   })
 })
 
-// Default routing to handle all Next.js requests
-app.all("*", (req, res) => {
-  return nextHandler(req, res)
-})
+app.all(['/', '/*path'], (req, res) => {
+  return nextHandler(req, res);
+});
 
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 3000;
 
 nextApp
   .prepare()
   .then(() => {
     server.listen(PORT, (err) => {
-      if (err) throw err
-      logAction(`App running on port: ${PORT}`)
-    })
+      if (err) throw err;
+      logAction(`App running on port: ${PORT}`);
+    });
   })
   .catch((err) => {
-    console.error("Error preparing Next.js app:", err)
-    process.exit(1)
-  })
+    console.error("Error preparing Next.js app:", err);
+    process.exit(1);
+  });
 
 function getYouTubeVideoId(url) {
   try {
     const urlObj = new URL(url)
     if (urlObj.hostname.includes("youtu.be")) return urlObj.pathname.slice(1)
     if (urlObj.hostname.includes("youtube.com")) return urlObj.searchParams.get("v")
-  } catch (err) {
+  } catch {
     console.error("Invalid YouTube URL:", url)
   }
   return null
