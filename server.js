@@ -233,7 +233,7 @@ io.on("connection", (socket) => {
   })
 })
 
-app.all(['/', '/*path'], (req, res) => {
+app.all('/{*path}', (req, res) => {
   return nextHandler(req, res);
 });
 
